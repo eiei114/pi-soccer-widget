@@ -1,0 +1,59 @@
+{
+  "name": "pi-soccer-widget",
+  "version": "0.1.0",
+  "description": "Pi widget for tracking a favorite soccer team with standings, recent results, and upcoming matches.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "soccer",
+    "football-data",
+    "sports",
+    "widget",
+    "world-cup"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eiei114/pi-soccer-widget.git"
+  },
+  "bugs": {
+    "url": "https://github.com/eiei114/pi-soccer-widget/issues"
+  },
+  "homepage": "https://github.com/eiei114/pi-soccer-widget#readme",
+  "main": "dist/extensions/index.js",
+  "types": "dist/extensions/index.d.ts",
+  "files": [
+    "extensions/",
+    "dist/extensions/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run build && npm pack --dry-run",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Keisu",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ]
+  }
+}
