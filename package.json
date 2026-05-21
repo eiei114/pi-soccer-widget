@@ -55,5 +55,8 @@
     "extensions": [
       "./extensions/index.ts"
     ]
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
