@@ -18,17 +18,58 @@ The widget prioritizes your favorite club, but can rotate to watchlist teams whe
 - Optional standing summary on the first line
 - Configurable league search scope
 
-## Install
+## Requirements
+
+- [Pi Coding Agent](https://pi.dev/) installed
+- Node.js >= 20
+- A free API token from [football-data.org](https://www.football-data.org/client/register)
+
+If you don't have Pi yet, install the CLI first:
 
 ```bash
-npm install pi-soccer-widget
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+# or
+curl -fsSL https://pi.dev/install.sh | sh
 ```
 
-For local development:
+## Install
+
+This is a Pi package, so install it with `pi install` (not plain `npm install`):
+
+```bash
+# from npm
+pi install npm:pi-soccer-widget
+
+# or from GitHub
+pi install git:github.com/eiei114/pi-soccer-widget
+```
+
+By default `pi install` writes to your user settings (`~/.pi/agent/settings.json`).
+Add `-l` to install into the current project (`.pi/settings.json`) instead.
+
+In a running Pi session, run `/reload` to pick up the newly installed extension
+(or start a new session). The `/soccer` command is then available.
+
+Manage the package later with:
+
+```bash
+pi list                          # show installed packages
+pi update npm:pi-soccer-widget   # update to the latest version
+pi remove npm:pi-soccer-widget   # uninstall
+```
+
+### Local development
+
+To hack on the extension from a checkout, load it directly for the current run:
 
 ```bash
 pi -e ./extensions/index.ts
 ```
+
+Or drop it into an auto-discovery path and hot-reload with `/reload`:
+
+- `~/.pi/agent/extensions/` — global (all projects)
+- `.pi/extensions/` — project-local
 
 ## API key setup
 
