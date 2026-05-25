@@ -189,6 +189,10 @@ Update **README.md** when:
 
 Routine refactors, test additions, or internal tooling changes generally do not require either update.
 
+## Maintenance
+
+This package is maintained with a small, safety-first process. See [OPERATIONS.md](./OPERATIONS.md) for issue triage, release checks, security handling, and external API fallback policy.
+
 ## Roadmap
 
 - FIFA World Cup 2026 mode

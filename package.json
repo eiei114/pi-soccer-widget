@@ -26,6 +26,7 @@
     "extensions/",
     "dist/extensions/",
     "README.md",
+    "OPERATIONS.md",
     "LICENSE",
     "CHANGELOG.md"
   ],
