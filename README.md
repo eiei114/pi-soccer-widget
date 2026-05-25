@@ -155,6 +155,40 @@ The extension stores lightweight local state under `~/.pi/agent/`:
 
 Legacy `soccer-team.json` is migrated automatically when present.
 
+## Release checklist
+
+Run a single command to verify everything before publishing:
+
+```bash
+npm run release:check
+```
+
+This runs `npm run check` (build + dry-run pack) then validates the tarball against the expected file list.
+
+### What to verify before release
+
+1. `npm run check` passes (TypeScript compiles, no errors)
+2. `npm run release:check` passes (build + pack + file list validation)
+3. Pack contents match the expected list in `scripts/release-check.mjs`
+4. No unintended files (source maps, test fixtures) leak into the tarball
+5. Version in `package.json` is bumped
+6. `CHANGELOG.md` has an entry for the new version
+
+### When to update README or CHANGELOG
+
+Update **CHANGELOG.md** when the change is user-visible:
+- New or changed commands or features
+- Bug fixes that affect behavior
+- Breaking changes or removed features
+- Dependency bumps that change runtime behavior
+
+Update **README.md** when:
+- New commands or options are added
+- Install or setup instructions change
+- Environment variables or config format changes
+
+Routine refactors, test additions, or internal tooling changes generally do not require either update.
+
 ## Maintenance
 
 This package is maintained with a small, safety-first process. See [OPERATIONS.md](./OPERATIONS.md) for issue triage, release checks, security handling, and external API fallback policy.
