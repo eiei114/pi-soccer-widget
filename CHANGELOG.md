@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+### Changed
+- Updated README with Pi extension install method.
+- Restored operations guide documentation.
+- Set public npm publish config.
+- Added package publish CI workflow.
+
 ## 0.1.0
 
 - Initial Pi soccer widget package scaffold.
