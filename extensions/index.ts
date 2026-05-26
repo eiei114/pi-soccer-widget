@@ -366,6 +366,66 @@ function normalizeName(value: string): string {
   return value.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a) return b.length;
+  if (!b) return a.length;
+
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: b.length + 1 }, () => 0);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + cost,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return previous[b.length];
+}
+
+function fuzzyScore(query: string, name: string): number {
+  const q = normalizeName(query);
+  const candidate = normalizeName(name);
+  if (!q || !candidate) return 0;
+  if (candidate === q) return 120;
+  if (candidate.startsWith(q)) return 100;
+  if (candidate.includes(q)) return 80;
+
+  const words = candidate.split(" ").filter(Boolean);
+  if (q.length >= 4 && words.some((part) => part.startsWith(q))) return 70;
+  if (q.length < 4) return 0;
+
+  const queryWordCount = q.split(" ").filter(Boolean).length;
+  const windows: string[] = [];
+  if (queryWordCount > 1 && words.length >= queryWordCount) {
+    for (let index = 0; index <= words.length - queryWordCount; index += 1) {
+      windows.push(words.slice(index, index + queryWordCount).join(" "));
+    }
+  }
+  const variants = [candidate, ...windows, ...words.filter((part) => part.length >= 4)];
+  return variants.reduce((best, variant) => {
+    const longest = Math.max(q.length, variant.length);
+    const distance = editDistance(q, variant);
+    const similarity = 1 - distance / longest;
+    if (distance <= 1 && q.length >= 4) return Math.max(best, 65);
+    if (distance <= 2 && q.length >= 6 && similarity >= 0.72) return Math.max(best, 58);
+    if (distance <= 3 && q.length >= 10 && similarity >= 0.78) return Math.max(best, 52);
+    return best;
+  }, 0);
+}
+
+function scoreTeamMatch(query: string, team: TeamRecord): number {
+  const aliases = [team.name, team.shortName, team.tla].filter(Boolean);
+  return Math.max(0, ...aliases.map((alias) => fuzzyScore(query, alias)));
+}
+
 function shortTeamName(t: { name: string; shortName: string }): string {
   return t.shortName?.trim() || t.name;
 }
@@ -409,15 +469,7 @@ async function searchTeams(query: string, token: string): Promise<TeamRecord[]> 
     }
   }
 
-  const scored = all.map((team) => {
-    const names = [team.name, team.shortName, team.tla].filter(Boolean).map(normalizeName);
-    let score = 0;
-    if (names.some((name) => name === q)) score = 100;
-    else if (names.some((name) => name.startsWith(q))) score = 80;
-    else if (names.some((name) => name.includes(q))) score = 60;
-    else if (q.length >= 4 && names.some((name) => name.split(" ").some((part) => part.startsWith(q)))) score = 45;
-    return { team, score };
-  });
+  const scored = all.map((team) => ({ team, score: scoreTeamMatch(q, team) }));
 
   return scored
     .filter((item) => item.score > 0)
@@ -431,6 +483,14 @@ function formatCandidates(results: TeamRecord[], query?: string): string {
   const header = query ? `Search results for "${query}":` : "Last search results:";
   const rows = results.map((team, index) => `${index + 1}. ${team.name} | ${team.leagueCode}${team.tla ? ` | ${team.tla}` : ""}`);
   return `${header}\n${rows.join("\n")}\nUse: /soccer add <number> or /soccer favorite <number>`;
+}
+
+function formatWatchlistCandidates(results: TeamRecord[], config: SoccerConfig, query: string): string {
+  const rows = results.map((team) => {
+    const index = config.teams.findIndex((item) => item.teamId === team.teamId);
+    return `${index + 1}. ${teamLabel(team)}`;
+  });
+  return `Multiple watchlist teams match "${query}".\n${rows.join("\n")}\nUse: /soccer remove <watchlist number>`;
 }
 
 function parseIndex(value: string): number | null {
@@ -460,6 +520,24 @@ async function teamFromArg(arg: string, token: string): Promise<{ team?: TeamRec
   if (exact.length === 1) return { team: exact[0] };
   if (candidates.length === 1) return { team: candidates[0] };
   return { candidates };
+}
+
+function teamFromConfigArg(arg: string, config: SoccerConfig): { team?: TeamRecord; candidates?: TeamRecord[] } {
+  const value = arg.trim();
+  const index = parseIndex(value);
+  if (index !== null) return { team: config.teams[index - 1] };
+  if (!value) return {};
+
+  const scored = config.teams
+    .map((team) => ({ team, score: scoreTeamMatch(value, team) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.team.name.localeCompare(b.team.name));
+
+  if (scored.length === 0) return {};
+  const bestScore = scored[0].score;
+  const best = scored.filter((item) => item.score === bestScore).map((item) => item.team);
+  if (best.length === 1) return { team: best[0] };
+  return { candidates: best };
 }
 
 function addTeam(config: SoccerConfig, team: TeamRecord): SoccerConfig {
@@ -929,12 +1007,11 @@ async function handleSoccerCommand(args: string, ctx: any): Promise<void> {
   }
 
   if (command === "remove" || command === "rm") {
-    const index = parseIndex(value);
-    let team: TeamRecord | undefined;
-    if (index !== null) team = config.teams[index - 1];
-    if (!team && value) {
-      const q = normalizeName(value);
-      team = config.teams.find((item) => [item.name, item.shortName, item.tla].map(normalizeName).some((name) => name === q || name.includes(q)));
+    const result = teamFromConfigArg(value, config);
+    const team = result.team;
+    if (result.candidates) {
+      showText(ctx, formatWatchlistCandidates(result.candidates, config, value), "warning");
+      return;
     }
     if (!team) {
       showText(ctx, "Team not found in watchlist. Use /soccer list.", "warning");
@@ -1000,6 +1077,14 @@ function getSoccerCompletions(prefix: string): Array<{ value: string; label: str
 
   return null;
 }
+
+export const __testing = {
+  editDistance,
+  fuzzyScore,
+  normalizeName,
+  scoreTeamMatch,
+  teamFromConfigArg,
+};
 
 export default function soccerWidgetExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
