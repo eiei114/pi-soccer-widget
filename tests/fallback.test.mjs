@@ -2,32 +2,62 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test, { after } from "node:test";
+import test, { afterEach, beforeEach } from "node:test";
+import { pathToFileURL } from "node:url";
 
-const testHome = mkdtempSync(join(tmpdir(), "pi-soccer-widget-"));
-process.env.HOME = testHome;
-process.env.USERPROFILE = testHome;
-process.env.FOOTBALL_DATA_API_TOKEN = "test-token";
-process.env.PI_SOCCER_LEAGUES = "SA";
+const originalFetch = globalThis.fetch;
+const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
+const originalToken = process.env.FOOTBALL_DATA_API_TOKEN;
+const originalLeagues = process.env.PI_SOCCER_LEAGUES;
 
-const agentDir = join(testHome, ".pi", "agent");
-const configFile = join(agentDir, "pi-soccer-widget-config.json");
-const snapshotsFile = join(agentDir, "pi-soccer-widget-snapshots.json");
+let testRun = 0;
+let testHome;
+let agentDir;
+let configFile;
+let snapshotsFile;
+let registered;
 
-const { default: soccerWidgetExtension } = await import("../dist/extensions/index.js");
-const registered = { events: {}, commands: {} };
-soccerWidgetExtension({
-  on(name, handler) {
-    registered.events[name] = handler;
-  },
-  registerCommand(name, command) {
-    registered.commands[name] = command;
-  },
+function restoreEnv(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
+
+beforeEach(async () => {
+  testHome = mkdtempSync(join(tmpdir(), "pi-soccer-widget-"));
+  process.env.HOME = testHome;
+  process.env.USERPROFILE = testHome;
+  process.env.FOOTBALL_DATA_API_TOKEN = "test-token";
+  process.env.PI_SOCCER_LEAGUES = "SA";
+
+  agentDir = join(testHome, ".pi", "agent");
+  configFile = join(agentDir, "pi-soccer-widget-config.json");
+  snapshotsFile = join(agentDir, "pi-soccer-widget-snapshots.json");
+  registered = { events: {}, commands: {} };
+
+  const extensionUrl = pathToFileURL(join(process.cwd(), "dist", "extensions", "index.js"));
+  extensionUrl.searchParams.set("testRun", String(testRun++));
+  const { default: soccerWidgetExtension } = await import(extensionUrl.href);
+  soccerWidgetExtension({
+    on(name, handler) {
+      registered.events[name] = handler;
+    },
+    registerCommand(name, command) {
+      registered.commands[name] = command;
+    },
+  });
 });
 
-after(() => {
+afterEach(() => {
   rmSync(testHome, { recursive: true, force: true });
-  delete globalThis.fetch;
+  globalThis.fetch = originalFetch;
+  restoreEnv("HOME", originalHome);
+  restoreEnv("USERPROFILE", originalUserProfile);
+  restoreEnv("FOOTBALL_DATA_API_TOKEN", originalToken);
+  restoreEnv("PI_SOCCER_LEAGUES", originalLeagues);
 });
 
 const theme = {
