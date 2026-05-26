@@ -1,0 +1,195 @@
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test, { after } from "node:test";
+
+const testHome = mkdtempSync(join(tmpdir(), "pi-soccer-widget-"));
+process.env.HOME = testHome;
+process.env.USERPROFILE = testHome;
+process.env.FOOTBALL_DATA_API_TOKEN = "test-token";
+process.env.PI_SOCCER_LEAGUES = "SA";
+
+const agentDir = join(testHome, ".pi", "agent");
+const configFile = join(agentDir, "pi-soccer-widget-config.json");
+const snapshotsFile = join(agentDir, "pi-soccer-widget-snapshots.json");
+
+const { default: soccerWidgetExtension } = await import("../dist/extensions/index.js");
+const registered = { events: {}, commands: {} };
+soccerWidgetExtension({
+  on(name, handler) {
+    registered.events[name] = handler;
+  },
+  registerCommand(name, command) {
+    registered.commands[name] = command;
+  },
+});
+
+after(() => {
+  rmSync(testHome, { recursive: true, force: true });
+  delete globalThis.fetch;
+});
+
+const theme = {
+  fg: (_color, text) => text,
+};
+
+function writeJson(file, value) {
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(file, JSON.stringify(value, null, 2), "utf-8");
+}
+
+function readJson(file) {
+  return JSON.parse(readFileSync(file, "utf-8"));
+}
+
+function team(id, name, leagueCode = "PL") {
+  return {
+    teamId: id,
+    name,
+    shortName: name,
+    tla: name.slice(0, 3).toUpperCase(),
+    leagueCode,
+  };
+}
+
+function snapshot(record, fetchedAt = Date.now() - 2 * 60 * 60 * 1000) {
+  return {
+    team: record,
+    standing: { position: 1, points: 42, playedGames: 18 },
+    lastResult: {
+      utcDate: "2026-05-20T18:00:00Z",
+      homeShort: record.shortName,
+      awayShort: "Rivals",
+      homeScore: 2,
+      awayScore: 1,
+      wdl: "W",
+    },
+    nextMatch: { utcDate: "2026-05-30T18:00:00Z", opponentShort: "Next" },
+    fetchedAt,
+    source: "watchlist",
+  };
+}
+
+function response(status, body) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      return body;
+    },
+  };
+}
+
+function seedConfig(record, extraTeams = []) {
+  writeJson(configFile, {
+    favoriteTeamId: record.teamId,
+    teams: [record, ...extraTeams],
+    updatedAt: "2026-05-01T00:00:00Z",
+  });
+}
+
+function seedStaleCache(record) {
+  seedConfig(record);
+  writeJson(snapshotsFile, {
+    timestamp: Date.now() - 7 * 60 * 60 * 1000,
+    discoveryTeamIds: [],
+    snapshots: { [String(record.teamId)]: snapshot(record) },
+  });
+}
+
+async function startSession() {
+  const widgets = [];
+  const notifications = [];
+  const ctx = {
+    hasUI: true,
+    ui: {
+      theme,
+      setWidget(id, lines) {
+        widgets.push({ id, lines });
+      },
+      notify(text, level = "info") {
+        notifications.push({ text, level });
+      },
+    },
+  };
+  await registered.events.session_start({}, ctx);
+  assert.equal(widgets.at(-1)?.id, "pi-soccer-widget");
+  return { widgets, notifications };
+}
+
+for (const [name, fetchImpl] of [
+  ["HTTP 500", async () => response(500, { message: "server error" })],
+  ["rate limit 429", async () => response(429, { message: "rate limited" })],
+  ["timeout abort", async () => { throw Object.assign(new Error("aborted"), { name: "AbortError" }); }],
+]) {
+  test(`stale snapshot renders when football-data fails with ${name}`, async () => {
+    seedStaleCache(team(57, "Arsenal"));
+    globalThis.fetch = fetchImpl;
+
+    const { widgets } = await startSession();
+    const lines = widgets.at(-1)?.lines ?? [];
+
+    assert.match(lines.join("\n"), /Soccer: Arsenal \| PL/);
+    assert.match(lines.join("\n"), /cache 2h ago/);
+    assert.doesNotMatch(lines.join("\n"), /Soccer error:/);
+  });
+}
+
+test("one team match fetch failure does not fail the whole sync", async () => {
+  rmSync(snapshotsFile, { force: true });
+  const broken = team(1, "Broken FC");
+  const healthy = team(2, "Healthy FC");
+  seedConfig(broken, [healthy]);
+  const today = new Date().toISOString().slice(0, 10);
+
+  globalThis.fetch = async (url) => {
+    const path = String(url);
+    if (path.includes("/competitions/PL/standings")) {
+      return response(200, {
+        standings: [{
+          type: "TOTAL",
+          table: [
+            { position: 1, points: 50, playedGames: 20, team: { id: 1, name: "Broken FC", shortName: "Broken", tla: "BRO" } },
+            { position: 2, points: 48, playedGames: 20, team: { id: 2, name: "Healthy FC", shortName: "Healthy", tla: "HEA" } },
+          ],
+        }],
+      });
+    }
+    if (path.includes("/competitions/SA/standings")) {
+      return response(429, { message: "rate limited discovery" });
+    }
+    if (path.includes("/teams/1/matches")) {
+      return response(500, { message: "team endpoint failed" });
+    }
+    if (path.includes("/teams/2/matches") && path.includes(`dateFrom=${today}`)) {
+      return response(200, { matches: [{
+        utcDate: "2026-05-30T18:00:00Z",
+        status: "SCHEDULED",
+        homeTeam: { id: 2, name: "Healthy FC", shortName: "Healthy" },
+        awayTeam: { id: 3, name: "Next FC", shortName: "Next" },
+        score: { winner: null, fullTime: { home: null, away: null } },
+      }] });
+    }
+    if (path.includes("/teams/2/matches")) {
+      return response(200, { matches: [{
+        utcDate: "2026-05-20T18:00:00Z",
+        status: "FINISHED",
+        homeTeam: { id: 2, name: "Healthy FC", shortName: "Healthy" },
+        awayTeam: { id: 4, name: "Past FC", shortName: "Past" },
+        score: { winner: "HOME_TEAM", fullTime: { home: 2, away: 0 } },
+      }] });
+    }
+    throw new Error(`unexpected URL: ${path}`);
+  };
+
+  await startSession();
+  const cache = readJson(snapshotsFile);
+
+  assert.equal(cache.snapshots["1"].team.name, "Broken FC");
+  assert.equal(cache.snapshots["1"].lastResult, null);
+  assert.equal(cache.snapshots["1"].nextMatch, null);
+  assert.equal(cache.snapshots["2"].team.name, "Healthy FC");
+  assert.equal(cache.snapshots["2"].lastResult?.wdl, "W");
+  assert.equal(cache.snapshots["2"].nextMatch?.opponentShort, "Next");
+});
