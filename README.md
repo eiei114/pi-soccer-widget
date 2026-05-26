@@ -153,6 +153,8 @@ The extension stores lightweight local state under `~/.pi/agent/`:
 - `pi-soccer-widget-search.json`
 - `pi-soccer-widget-snapshots.json` - 6-hour cached match/standing snapshots
 
+`pi-soccer-widget-auth.json` contains secret material and is local-only. Do not commit it, paste it into issues, or include it in logs. Use `/soccer logout` to remove the stored key. If `FOOTBALL_DATA_API_TOKEN` is set, it takes priority over this file, and `/soccer status` reports only the source, never the key value.
+
 Legacy `soccer-team.json` is migrated automatically when present.
 
 ## Release checklist
