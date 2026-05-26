@@ -162,7 +162,7 @@ for (const [name, fetchImpl] of [
 
     assert.match(lines.join("\n"), /Soccer: Arsenal \| PL/);
     assert.match(lines.join("\n"), /cache 2h ago/);
-    assert.doesNotMatch(lines.join("\n"), /Soccer error:/);
+    assert.doesNotMatch(lines.join("\n"), /Soccer error/);
   });
 }
 
