@@ -29,6 +29,21 @@ test("watchlist lookup keeps numeric selection and fuzzy string selection workin
   assert.equal(__testing.teamFromConfigArg("manchster united", config).team?.teamId, 4);
 });
 
+test("watchlist lookup returns multiple candidates when top fuzzy scores tie", () => {
+  const ambiguousTeams = [
+    ...teams,
+    { teamId: 5, name: "Newcastle United FC", shortName: "Newcastle", tla: "NEW", leagueCode: "PL" },
+  ];
+  const config = { favoriteTeamId: 1, teams: ambiguousTeams, updatedAt: new Date(0).toISOString() };
+  const result = __testing.teamFromConfigArg("united", config);
+
+  assert.ok(result.candidates && result.candidates.length >= 2);
+  assert.equal(result.team, undefined);
+  const ids = new Set(result.candidates.map((t) => t.teamId));
+  assert.ok(ids.has(4));
+  assert.ok(ids.has(5));
+});
+
 test("short unrelated queries do not fuzzy-match watchlist teams", () => {
   const config = { favoriteTeamId: 1, teams, updatedAt: new Date(0).toISOString() };
 
