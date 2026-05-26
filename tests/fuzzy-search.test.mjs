@@ -35,3 +35,11 @@ test("short unrelated queries do not fuzzy-match watchlist teams", () => {
   assert.equal(__testing.teamFromConfigArg("xy", config).team, undefined);
   assert.equal(__testing.scoreTeamMatch("xy", teams[0]), 0);
 });
+
+test("fuzzy score handles case, empty input, and punctuation edge cases", () => {
+  assert.equal(__testing.scoreTeamMatch("ARSENAL", teams[0]), __testing.scoreTeamMatch("arsenal", teams[0]));
+  assert.equal(__testing.scoreTeamMatch("", teams[0]), 0);
+  assert.equal(__testing.fuzzyScore("arsenal", ""), 0);
+  assert.ok(__testing.scoreTeamMatch("manchester-united!!!", teams[3]) > 0);
+  assert.ok(__testing.scoreTeamMatch("real_madrid", teams[2]) > 0);
+});

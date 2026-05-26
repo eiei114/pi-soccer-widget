@@ -371,8 +371,8 @@ function editDistance(a: string, b: string): number {
   if (!a) return b.length;
   if (!b) return a.length;
 
-  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
-  const current = Array.from({ length: b.length + 1 }, () => 0);
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  let current = Array.from({ length: b.length + 1 }, () => 0);
 
   for (let i = 1; i <= a.length; i += 1) {
     current[0] = i;
@@ -384,7 +384,7 @@ function editDistance(a: string, b: string): number {
         previous[j - 1] + cost,
       );
     }
-    previous.splice(0, previous.length, ...current);
+    [previous, current] = [current, previous];
   }
 
   return previous[b.length];
