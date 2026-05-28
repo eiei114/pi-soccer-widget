@@ -5,6 +5,7 @@
 - Added `npm run release:check` script for one-command pre-release validation.
 - Added pack file list validation against an expected manifest.
 - Documented release checklist, pack verification steps, and README/CHANGELOG update criteria in README.
+- Added an issue acceptance-criteria template and clarified priority (high/medium/low) judgment in OPERATIONS.
 
 ## 0.1.1
 
