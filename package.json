@@ -1,6 +1,6 @@
 {
   "name": "pi-soccer-widget",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Pi widget for tracking a favorite soccer team with standings, recent results, and upcoming matches.",
   "type": "module",
   "keywords": [
