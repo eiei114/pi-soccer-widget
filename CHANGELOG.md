@@ -1,11 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-05-29
+
+- Added top-level `/soccer:*` command aliases such as `/soccer:status`, `/soccer:setup`, and `/soccer:search` while keeping `/soccer status` compatibility.
+
+## 0.1.2 - 2026-05-28
 
 - Added `npm run release:check` script for one-command pre-release validation.
 - Added pack file list validation against an expected manifest.
 - Documented release checklist, pack verification steps, and README/CHANGELOG update criteria in README.
 - Added an issue acceptance-criteria template and clarified priority (high/medium/low) judgment in OPERATIONS.
+- Added regression coverage to keep `/soccer status` from exposing saved or environment API keys.
+- Documented local API key storage and secret-safe issue/log handling in README and OPERATIONS.
 
 ## 0.1.1
 

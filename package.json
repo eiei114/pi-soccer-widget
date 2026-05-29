@@ -1,6 +1,6 @@
 {
   "name": "pi-soccer-widget",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Pi widget for tracking a favorite soccer team with standings, recent results, and upcoming matches.",
   "type": "module",
   "keywords": [
@@ -32,10 +32,10 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test tests/*.test.mjs",
     "check": "npm test && npm pack --dry-run",
     "release:check": "node scripts/release-check.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "test": "npm run build && node --test tests/*.test.mjs"
   },
   "engines": {
     "node": ">=20"

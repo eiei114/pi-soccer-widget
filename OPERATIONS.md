@@ -88,7 +88,8 @@ npm run check
 
 - Football-data API key は Pi UI 入力で受け取り、モデル文脈に出さない。
 - 保存先は `~/.pi/agent/pi-soccer-widget-auth.json`。可能な環境では `0600` を設定する。
-- `FOOTBALL_DATA_API_TOKEN` がある場合は環境変数を優先する。
+- `pi-soccer-widget-auth.json` は secret 本体を含むローカル専用ファイル。コミット、Issue 添付、ログ貼り付けをしない。確認が必要な場合も key 値は伏せる。
+- `FOOTBALL_DATA_API_TOKEN` がある場合は環境変数を優先する。`/soccer status` は source のみ表示し、環境変数・保存ファイルの key 本体を表示しない。
 - Issue やログに key が貼られた場合は、即座に利用者へローテーションを促す。
 - 公開 Issue に脆弱性詳細を書かず、`SECURITY.md` の私的報告方針に従う。
 
