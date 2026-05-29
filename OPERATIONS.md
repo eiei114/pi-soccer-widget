@@ -80,6 +80,31 @@ npm run check
 
 `npm pack --dry-run` の出力で、配布物が `extensions/`, `dist/extensions/`, `README.md`, `OPERATIONS.md`, `LICENSE`, `CHANGELOG.md` に収まっているか確認します。
 
+### npm publish（Trusted Publisher）
+
+npm publish は GitHub Actions OIDC の Trusted Publisher 経由のみ。`NPM_TOKEN` は使わない。
+
+npmjs.com の Trusted Publisher 設定:
+
+- Publisher: GitHub Actions
+- Repository: `eiei114/pi-soccer-widget`
+- Workflow filename: `publish.yml`
+
+通常フロー:
+
+1. `main` へ version bump を merge する
+2. `auto-release.yml` が tag / GitHub Release を作成する
+3. 同 workflow から `publish.yml` を起動する
+4. `publish.yml` が `npm run check` と `npm publish --access public` を実行する
+
+手動 fallback（publish 失敗時や tag 先行時）:
+
+```bash
+gh workflow run publish.yml --repo eiei114/pi-soccer-widget --ref v0.3.0 -f ref=v0.3.0
+```
+
+`auto-release.yml` から直接 `npm publish` しない。Trusted Publisher は workflow filename が一致しないと E404 になる。
+
 ### 緊急リリース
 
 秘密情報漏えいや Pi セッション停止級の不具合は、機能追加を止めて修正を優先します。修正後は `SECURITY.md` と `CHANGELOG.md` に利用者向け対応を追記します。
