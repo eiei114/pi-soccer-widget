@@ -1556,6 +1556,7 @@ async function showWorldCupMenu(ctx: any, config: SoccerConfig): Promise<void> {
       writeConfig(next);
       currentConfig = next;
       showText(ctx, `World Cup default widget: ${choice === "Use World Cup widget" ? "World Cup" : "club"}`);
+      resetRefreshTimer(ctx);
       await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme, { forceSync: false });
       return;
     }
@@ -1800,6 +1801,18 @@ function getSoccerCompletions(prefix: string): Array<{ value: string; label: str
   return null;
 }
 
+function resetRefreshTimer(ctx: any): void {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+  const intervalMs = shouldUseWorldCupWidget(currentConfig ?? readConfig()) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
+  refreshTimer = setInterval(async () => {
+    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme);
+  }, intervalMs);
+  refreshTimer.unref?.();
+}
+
 export const __testing = {
   editDistance,
   findNationalTeams,
@@ -1824,15 +1837,7 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
     currentConfig = readConfig();
     await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme);
 
-    if (refreshTimer) {
-      clearInterval(refreshTimer);
-      refreshTimer = null;
-    }
-    const intervalMs = shouldUseWorldCupWidget(currentConfig) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
-    refreshTimer = setInterval(async () => {
-      await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme);
-    }, intervalMs);
-    refreshTimer.unref?.();
+    resetRefreshTimer(ctx);
   });
 
   pi.registerCommand("soccer", {

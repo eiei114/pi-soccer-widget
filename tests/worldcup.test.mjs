@@ -250,3 +250,45 @@ test("World Cup default widget mode does not change existing club widget unless 
   });
 });
 
+test("World Cup widget mode change resets refresh timer cadence immediately", async () => {
+  const originalSetInterval = globalThis.setInterval;
+  const originalClearInterval = globalThis.clearInterval;
+  const delays = [];
+  let cleared = 0;
+  globalThis.setInterval = (_fn, delay) => {
+    delays.push(delay);
+    return { unref() {} };
+  };
+  globalThis.clearInterval = () => {
+    cleared += 1;
+  };
+
+  try {
+    await withExtension(async ({ commands, configFile }) => {
+      writeJson(configFile, {
+        favoriteTeamId: 86,
+        teams: [{ teamId: 86, name: "Real Madrid", shortName: "Real Madrid", tla: "RMA", leagueCode: "PD" }],
+        worldCup: {
+          followedTeamId: 900017,
+          teams: [{ teamId: 900017, name: "Japan", shortName: "Japan", tla: "JPN", leagueCode: "WC" }],
+          countryCode: "JPN",
+          widgetMode: "club",
+          updatedAt: "2026-05-01T00:00:00Z",
+        },
+        updatedAt: "2026-05-01T00:00:00Z",
+      });
+      const { ctx } = createCtx({
+        select: (title, items) => title.startsWith("World Cup settings") ? "Use World Cup widget" : items.find((item) => item === "Settings"),
+      });
+
+      await commands.get("soccer:worldcup").handler("", ctx);
+    });
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+    globalThis.clearInterval = originalClearInterval;
+  }
+
+  assert.equal(delays.at(-1), 10 * 60 * 1000);
+  assert.equal(cleared, 0);
+});
+

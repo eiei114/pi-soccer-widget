@@ -6,6 +6,7 @@
 - Added first-run followed country setup with environment/locale guesses, confirmation, manual search, and backward-compatible config persistence.
 - Added World Cup data views for today's matches, followed-country group table, match detail, and top scorers with graceful fallbacks.
 - Added optional World Cup default widget rendering with matchday-oriented refresh hints, goal/event strips, and group-rank context.
+- Fixed World Cup widget mode changes to reset the automatic refresh cadence immediately.
 
 ## 0.2.0 - 2026-05-29
 
