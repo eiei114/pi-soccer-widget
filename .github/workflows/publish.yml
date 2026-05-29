@@ -1,15 +1,10 @@
 name: Publish to npm
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Git ref to publish (defaults to selected ref)'
+        description: 'Git ref to publish (defaults to selected ref). Manual fallback only; normal releases publish from auto-release.yml.'
         required: false
         type: string
 
@@ -37,7 +32,6 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          package-manager-cache: false
 
       - name: Install dependencies
         shell: bash
