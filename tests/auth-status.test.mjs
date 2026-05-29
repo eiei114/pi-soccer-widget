@@ -28,7 +28,7 @@ async function withSoccerCommand(fn) {
     });
     const command = commands.get("soccer");
     assert.ok(command, "soccer command should be registered");
-    await fn(command);
+    await fn(command, commands);
   } finally {
     if (previousEnv.HOME === undefined) delete process.env.HOME;
     else process.env.HOME = previousEnv.HOME;
@@ -86,5 +86,43 @@ test("FOOTBALL_DATA_API_TOKEN takes priority and status still hides secrets", as
     assert.match(status, /FOOTBALL_DATA_API_TOKEN environment variable/);
     assert.equal(status.includes(envSecret), false, "status must not include environment API key value");
     assert.equal(status.includes(storedSecret), false, "status must not include stored API key value");
+  });
+});
+
+test("/soccer:status alias reports API key status without exposing secrets", async () => {
+  await withSoccerCommand(async (command, commands) => {
+    const storedSecret = "fd_test_stored_should_not_appear_alias_1234567890";
+    const { ctx, notifications } = createCtx(storedSecret);
+    const statusAlias = commands.get("soccer:status");
+
+    assert.ok(statusAlias, "soccer:status alias should be registered");
+    await command.handler("login", ctx);
+    notifications.length = 0;
+    await statusAlias.handler("", ctx);
+
+    const status = notifications.at(-1)?.text ?? "";
+    assert.match(status, /configured via pi-soccer-widget login/);
+    assert.equal(status.includes(storedSecret), false, "status alias must not include stored API key value");
+  });
+});
+
+test("all primary /soccer:* command aliases are registered", async () => {
+  await withSoccerCommand(async (_command, commands) => {
+    for (const name of [
+      "soccer:setup",
+      "soccer:get-key",
+      "soccer:login",
+      "soccer:status",
+      "soccer:logout",
+      "soccer:sync",
+      "soccer:pick",
+      "soccer:search",
+      "soccer:add",
+      "soccer:favorite",
+      "soccer:list",
+      "soccer:remove",
+    ]) {
+      assert.ok(commands.has(name), `${name} alias should be registered`);
+    }
   });
 });

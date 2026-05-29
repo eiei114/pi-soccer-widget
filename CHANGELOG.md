@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-05-29
+
+- Added top-level `/soccer:*` command aliases such as `/soccer:status`, `/soccer:setup`, and `/soccer:search` while keeping `/soccer status` compatibility.
 
 ## 0.1.2 - 2026-05-28
 

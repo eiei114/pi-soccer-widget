@@ -10,7 +10,7 @@ The widget prioritizes your favorite club, but can rotate to watchlist teams whe
 - Watchlist fallback for off-season periods
 - Candidate search before adding teams, reducing typo mistakes
 - Tab completion for subcommands and cached result numbers
-- `/soccer setup` and `/soccer pick` guided flows
+- `/soccer:setup` and `/soccer:pick` guided flows
 - 6-hour sync cache to reduce API requests
 - Discovery fallback from one random league top-3 pool per sync
 - One compact widget at a time
@@ -68,21 +68,27 @@ pi -e ./extensions/index.ts
 
 Or drop it into an auto-discovery path and hot-reload with `/reload`:
 
-- `~/.pi/agent/extensions/` — global (all projects)
-- `.pi/extensions/` — project-local
+- `~/.pi/agent/extensions/` - global (all projects)
+- `.pi/extensions/` - project-local
 
 ## API key setup
 
 Get a token from football-data.org. Then run this inside Pi:
 
 ```text
-/soccer setup
+/soccer:setup
+```
+
+Check whether Pi sees your API key without exposing the key value:
+
+```text
+/soccer:status
 ```
 
 For API-key-only setup:
 
 ```text
-/soccer login
+/soccer:login
 ```
 
 The key is entered through Pi extension UI, not through the chat/model context.
@@ -115,25 +121,27 @@ Default league search scope:
 
 ```text
 /soccer                       refresh widget from cache
-/soccer setup                 guided API key + favorite team setup
-/soccer get-key               show signup link and API key instructions
-/soccer login                 enter and store API key via Pi UI
-/soccer status                show API key status without exposing it
-/soccer logout                remove stored API key
-/soccer sync                  force refresh cached data
-/soccer pick                  search/select favorite with Pi UI
-/soccer search arsenal        show candidate teams
-/soccer add 1                 add candidate #1 to watchlist
-/soccer favorite 1            set candidate #1 as favorite
-/soccer list                  show watchlist
-/soccer remove 2              remove watchlist item #2
+/soccer:setup                 guided API key + favorite team setup
+/soccer:get-key               show signup link and API key instructions
+/soccer:login                 enter and store API key via Pi UI
+/soccer:status                show API key status without exposing it
+/soccer:logout                remove stored API key
+/soccer:sync                  force refresh cached data
+/soccer:pick                  search/select favorite with Pi UI
+/soccer:search arsenal        show candidate teams
+/soccer:add 1                 add candidate #1 to watchlist
+/soccer:favorite 1            set candidate #1 as favorite
+/soccer:list                  show watchlist
+/soccer:remove 2              remove watchlist item #2
 /soccer Arsenal               shorthand: set favorite if unambiguous
 ```
+
+The older subcommand form still works for compatibility, such as `/soccer status` and `/soccer search arsenal`.
 
 ## Widget behavior
 
 When the favorite has both a recent result and an upcoming match, it is shown first.
-When favorite data is thin, the widget can fall back to another watchlist team or a cached discovery team. Sync runs at most every 6 hours unless `/soccer sync` is used.
+When favorite data is thin, the widget can fall back to another watchlist team or a cached discovery team. Sync runs at most every 6 hours unless `/soccer:sync` is used.
 
 Example:
 
@@ -147,13 +155,13 @@ Next: vs Liverpool | 5/24 20:00
 
 The extension stores lightweight local state under `~/.pi/agent/`:
 
-- `pi-soccer-widget-auth.json` - stored API key from `/soccer login`
+- `pi-soccer-widget-auth.json` - stored API key from `/soccer:login`
 - `pi-soccer-widget-config.json`
 - `pi-soccer-widget-teams-cache.json`
 - `pi-soccer-widget-search.json`
 - `pi-soccer-widget-snapshots.json` - 6-hour cached match/standing snapshots
 
-`pi-soccer-widget-auth.json` contains secret material and is local-only. Do not commit it, paste it into issues, or include it in logs. Use `/soccer logout` to remove the stored key. If `FOOTBALL_DATA_API_TOKEN` is set, it takes priority over this file, and `/soccer status` reports only the source, never the key value.
+`pi-soccer-widget-auth.json` contains secret material and is local-only. Do not commit it, paste it into issues, or include it in logs. Use `/soccer:logout` to remove the stored key. If `FOOTBALL_DATA_API_TOKEN` is set, it takes priority over this file, and `/soccer:status` reports only the source, never the key value.
 
 Legacy `soccer-team.json` is migrated automatically when present.
 

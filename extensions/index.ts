@@ -15,13 +15,15 @@
  *
  * Commands:
  *   /soccer                  - refresh widget
- *   /soccer login            - enter and store Football-data API key via Pi UI
- *   /soccer status           - show API key status without exposing the key
- *   /soccer search <query>   - show candidate teams
- *   /soccer add <query|n>    - add team to watchlist
- *   /soccer favorite <query|n> - set favorite team
- *   /soccer list             - show watchlist
- *   /soccer remove <query|n> - remove team from watchlist
+ *   /soccer:setup            - guided API key + favorite team setup
+ *   /soccer:login            - enter and store Football-data API key via Pi UI
+ *   /soccer:status           - show API key status without exposing the key
+ *   /soccer:sync             - force refresh cached soccer data
+ *   /soccer:search <query>   - show candidate teams
+ *   /soccer:add <query|n>    - add team to watchlist
+ *   /soccer:favorite <query|n> - set favorite team
+ *   /soccer:list             - show watchlist
+ *   /soccer:remove <query|n> - remove team from watchlist
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -68,6 +70,14 @@ const COMMANDS = [
   ["list", "show watchlist"],
   ["remove", "remove a watchlist team"],
   ["logout", "remove stored API key"],
+] as const;
+
+const COLON_COMMAND_ALIASES = [
+  ...COMMANDS.map(([command, description]) => ({ name: `soccer:${command}`, command, description })),
+  { name: "soccer:key", command: "get-key", description: "show Football-data signup/API key help" },
+  { name: "soccer:api-key", command: "get-key", description: "show Football-data signup/API key help" },
+  { name: "soccer:fav", command: "favorite", description: "set favorite team from cached search results" },
+  { name: "soccer:rm", command: "remove", description: "remove a watchlist team" },
 ] as const;
 
 type Notify = (msg: string, level: "info" | "warning" | "error") => void;
@@ -336,7 +346,7 @@ function authStatusText(): string {
     ? "Football-data API key: configured via FOOTBALL_DATA_API_TOKEN environment variable."
     : source === "stored"
     ? "Football-data API key: configured via pi-soccer-widget login."
-    : "Football-data API key: not configured. Run /soccer setup.";
+    : "Football-data API key: not configured. Run /soccer:setup.";
   return `${auth}\nSnapshot cache: ${cache.timestamp ? ageText(cache.timestamp) : "empty"}\nDiscovery league: ${cache.discoveryLeagueCode ?? "none"}`;
 }
 
@@ -482,7 +492,7 @@ function formatCandidates(results: TeamRecord[], query?: string): string {
   if (results.length === 0) return `No teams found${query ? ` for "${query}"` : ""}.`;
   const header = query ? `Search results for "${query}":` : "Last search results:";
   const rows = results.map((team, index) => `${index + 1}. ${team.name} | ${team.leagueCode}${team.tla ? ` | ${team.tla}` : ""}`);
-  return `${header}\n${rows.join("\n")}\nUse: /soccer add <number> or /soccer favorite <number>`;
+  return `${header}\n${rows.join("\n")}\nUse: /soccer:add <number> or /soccer:favorite <number>`;
 }
 
 function formatWatchlistCandidates(results: TeamRecord[], config: SoccerConfig, query: string): string {
@@ -490,7 +500,7 @@ function formatWatchlistCandidates(results: TeamRecord[], config: SoccerConfig, 
     const index = config.teams.findIndex((item) => item.teamId === team.teamId);
     return `${index + 1}. ${teamLabel(team)}`;
   });
-  return `Multiple watchlist teams match "${query}".\n${rows.join("\n")}\nUse: /soccer remove <watchlist number>`;
+  return `Multiple watchlist teams match "${query}".\n${rows.join("\n")}\nUse: /soccer:remove <watchlist number>`;
 }
 
 function parseIndex(value: string): number | null {
@@ -501,13 +511,13 @@ function parseIndex(value: string): number | null {
 
 async function teamFromArg(arg: string, token: string): Promise<{ team?: TeamRecord; candidates?: TeamRecord[]; message?: string }> {
   const value = arg.trim();
-  if (!value) return { message: "Missing team. Use /soccer search <name>." };
+  if (!value) return { message: "Missing team. Use /soccer:search <name>." };
 
   const index = parseIndex(value);
   if (index !== null) {
     const cache = readSearchCache();
     const team = cache?.results[index - 1];
-    if (!team) return { message: `No cached search result #${index}. Run /soccer search <name> first.` };
+    if (!team) return { message: `No cached search result #${index}. Run /soccer:search <name> first.` };
     return { team };
   }
 
@@ -757,13 +767,13 @@ function renderLoading(teamName: string, theme: Theme): string[] {
 }
 
 function renderNoToken(theme: Theme): string[] {
-  return [theme.fg("dim", "Soccer: API key not set. Run /soccer setup")];
+  return [theme.fg("dim", "Soccer: API key not set. Run /soccer:setup")];
 }
 
 function renderNoTeams(theme: Theme): string[] {
   return [
     theme.fg("dim", "Soccer: no favorite team yet"),
-    theme.fg("dim", "Run /soccer setup or /soccer pick"),
+    theme.fg("dim", "Run /soccer:setup or /soccer:pick"),
   ];
 }
 
@@ -849,7 +859,7 @@ function apiKeyGuideText(): string {
     `1. Open: ${SIGNUP_URL}`,
     "2. Create a free football-data.org account.",
     "3. Check your email. The API key is sent by email after signup.",
-    "4. Return to Pi and run: /soccer login",
+    "4. Return to Pi and run: /soccer:login",
     `Docs: ${DOCS_URL}`,
   ].join("\n");
 }
@@ -925,7 +935,7 @@ async function handleSoccerCommand(args: string, ctx: any): Promise<void> {
   const token = command === "setup" ? await ensureTokenForSetup(ctx) : resolveApiToken().token;
 
   if (!token) {
-    showText(ctx, "Football-data API key is not set. Run /soccer setup.", "warning");
+    showText(ctx, "Football-data API key is not set. Run /soccer:setup.", "warning");
     ctx.ui.setWidget(WIDGET_ID, renderNoToken(theme));
     return;
   }
@@ -977,7 +987,7 @@ async function handleSoccerCommand(args: string, ctx: any): Promise<void> {
 
   if (command === "list") {
     if (config.teams.length === 0) {
-      showText(ctx, "No teams in watchlist. Run /soccer pick.", "warning");
+      showText(ctx, "No teams in watchlist. Run /soccer:pick.", "warning");
       return;
     }
     const rows = config.teams.map((team, index) => `${index + 1}. ${teamLabel(team)}${team.teamId === config.favoriteTeamId ? " (favorite)" : ""}`);
@@ -1014,7 +1024,7 @@ async function handleSoccerCommand(args: string, ctx: any): Promise<void> {
       return;
     }
     if (!team) {
-      showText(ctx, "Team not found in watchlist. Use /soccer list.", "warning");
+      showText(ctx, "Team not found in watchlist. Use /soccer:list.", "warning");
       return;
     }
     writeConfig(removeTeam(config, team.teamId));
@@ -1111,4 +1121,15 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
       await handleSoccerCommand(args, ctx);
     },
   });
+
+  for (const alias of COLON_COMMAND_ALIASES) {
+    pi.registerCommand(alias.name, {
+      description: `Soccer: ${alias.description}. Alias for /soccer:${alias.command}.`,
+      handler: async (args, ctx) => {
+        if (!ctx.hasUI) return;
+        const value = String(args ?? "").trim();
+        await handleSoccerCommand(value ? `${alias.command} ${value}` : alias.command, ctx);
+      },
+    });
+  }
 }
