@@ -148,11 +148,11 @@ World Cup is colon-command only; `/soccer worldcup ...` is not a supported comma
 Run `/soccer:worldcup` or `/soccer:wc` to open the World Cup menu:
 
 - Follow my country
-- Today's matches
-- Group table
-- Match detail
-- Top scorers
-- Settings
+- Today's matches - WC matches for the current local date
+- Group table - followed-country group table; does not assume the first table is the right group
+- Match detail - followed-country match facts/events without cramming them into the widget
+- Top scorers - WC scorers when football-data.org supports them, otherwise `not available`
+- Settings - switch the default widget between club mode and World Cup mode
 
 On first run, the extension picks a followed country in this order:
 
@@ -163,10 +163,14 @@ On first run, the extension picks a followed country in this order:
 
 Guessed countries always require confirmation before saving. IP geolocation is not used.
 
+World Cup uses football-data.org `WC` endpoints for teams, matches, standings, and scorers where available. `WC` is not included in the normal club league search/discovery list.
+
 ## Widget behavior
 
 When the favorite has both a recent result and an upcoming match, it is shown first.
 When favorite data is thin, the widget can fall back to another watchlist team or a cached discovery team. Sync runs at most every 6 hours unless `/soccer:sync` is used.
+
+World Cup widget mode is opt-in when you already have a club watchlist, and automatic when no club favorite exists. It stays compact: followed-country score/next kickoff, goal scorers when available, group rank, notable red-card/penalty/shootout context, today's top matches when the followed country is inactive, and a cache/sync hint. Matchday refresh uses a shorter ~10 minute cadence and does not claim second-by-second live precision.
 
 Example:
 

@@ -57,8 +57,12 @@ const WIDGET_ID = "pi-soccer-widget";
 const DEFAULT_LEAGUES = ["PL", "PD", "SA", "BL1", "FL1", "DED", "PPL"] as const;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SNAPSHOT_TTL_MS = 6 * 60 * 60 * 1000;
+const WORLD_CUP_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
+const WORLD_CUP_MATCHDAY_TTL_MS = 10 * 60 * 1000;
+const WORLD_CUP_REFRESH_MS = 10 * 60 * 1000;
 const SYNC_LOCK_MS = 5 * 60 * 1000;
 const DISCOVERY_TOP_N = 3;
+const WORLD_CUP_CODE = "WC";
 
 const COMMANDS = [
   ["setup", "guided API key + favorite team setup"],
@@ -115,6 +119,7 @@ interface WorldCupConfig {
   followedTeamId: number | null;
   teams: TeamRecord[];
   countryCode?: string;
+  widgetMode?: "club" | "worldcup";
   updatedAt: string;
 }
 
@@ -188,17 +193,37 @@ interface SnapshotCache {
   discoveryLeagueCode?: string;
   discoveryTeamIds: number[];
   snapshots: Record<string, TeamSnapshot>;
+  worldCup?: WorldCupSnapshot;
 }
 
 interface MatchEntry {
+  id?: number;
   utcDate: string;
   status: string;
+  stage?: string;
+  group?: string | null;
+  matchday?: number;
+  lastUpdated?: string;
   homeTeam: { id: number; name: string; shortName: string };
   awayTeam: { id: number; name: string; shortName: string };
   score: {
+    duration?: string;
     winner: "HOME_TEAM" | "AWAY_TEAM" | "DRAW" | null;
     fullTime: { home: number | null; away: number | null };
+    regularTime?: { home: number | null; away: number | null };
+    penalties?: { home: number | null; away: number | null };
   };
+  goals?: Array<{
+    minute?: number | null;
+    team?: { id?: number; name?: string };
+    scorer?: { name?: string };
+  }>;
+  bookings?: Array<{
+    minute?: number | null;
+    team?: { id?: number; name?: string };
+    player?: { name?: string };
+    card?: string;
+  }>;
 }
 
 interface StandingTableRow {
@@ -206,6 +231,32 @@ interface StandingTableRow {
   points: number;
   playedGames: number;
   team: { id: number; name: string; shortName?: string; tla?: string };
+}
+
+interface WorldCupStandingTable {
+  stage?: string;
+  type: string;
+  group?: string;
+  table: StandingTableRow[];
+}
+
+interface WorldCupScorerEntry {
+  player?: { name?: string; nationality?: string };
+  team?: { id?: number; name?: string; shortName?: string; tla?: string };
+  goals?: number;
+  assists?: number | null;
+  penalties?: number | null;
+}
+
+interface WorldCupSnapshot {
+  timestamp: number;
+  fetchedAt: number;
+  team: TeamRecord;
+  teams: TeamRecord[];
+  matches: MatchEntry[];
+  standings: WorldCupStandingTable[];
+  topScorers: WorldCupScorerEntry[] | null;
+  topScorersAvailable: boolean;
 }
 
 type NationalTeamSeed = {
@@ -352,12 +403,13 @@ function uniqueTeams(teams: TeamRecord[]): TeamRecord[] {
 
 function normalizeWorldCupConfig(value?: WorldCupConfig): WorldCupConfig | undefined {
   if (!value || !Array.isArray(value.teams)) return undefined;
-  const teams = uniqueTeams(value.teams).map((team) => ({ ...team, leagueCode: "WC" }));
+  const teams = uniqueTeams(value.teams).map((team) => ({ ...team, leagueCode: WORLD_CUP_CODE }));
   const followedTeamId = value.followedTeamId ?? teams[0]?.teamId ?? null;
   return {
     followedTeamId,
     teams,
     countryCode: value.countryCode ?? teams.find((team) => team.teamId === followedTeamId)?.tla,
+    widgetMode: value.widgetMode === "worldcup" ? "worldcup" : value.widgetMode === "club" ? "club" : undefined,
     updatedAt: value.updatedAt ?? nowIso(),
   };
 }
@@ -619,7 +671,7 @@ function followedWorldCupTeam(config: SoccerConfig): TeamRecord | null {
 }
 
 function setFollowedWorldCupTeam(config: SoccerConfig, team: TeamRecord): SoccerConfig {
-  const wcTeam = { ...team, leagueCode: "WC" };
+  const wcTeam = { ...team, leagueCode: WORLD_CUP_CODE };
   const existing = normalizeWorldCupConfig(config.worldCup);
   return {
     ...config,
@@ -627,9 +679,311 @@ function setFollowedWorldCupTeam(config: SoccerConfig, team: TeamRecord): Soccer
       followedTeamId: wcTeam.teamId,
       teams: uniqueTeams([...(existing?.teams ?? []), wcTeam]),
       countryCode: nationalSeedForTeam(wcTeam)?.countryCode ?? wcTeam.tla,
+      widgetMode: existing?.widgetMode,
       updatedAt: nowIso(),
     },
   };
+}
+
+function shouldUseWorldCupWidget(config: SoccerConfig): boolean {
+  const worldCup = normalizeWorldCupConfig(config.worldCup);
+  if (!worldCup || !followedWorldCupTeam(config)) return false;
+  if (worldCup.widgetMode) return worldCup.widgetMode === "worldcup";
+  return config.teams.length === 0;
+}
+
+function setWorldCupWidgetMode(config: SoccerConfig, mode: "club" | "worldcup"): SoccerConfig {
+  const worldCup = normalizeWorldCupConfig(config.worldCup);
+  if (!worldCup) return config;
+  return { ...config, worldCup: { ...worldCup, widgetMode: mode, updatedAt: nowIso() } };
+}
+
+function sameWorldCupTeam(apiTeam: { id?: number; name?: string; shortName?: string; tla?: string }, followed: TeamRecord): boolean {
+  if (apiTeam.id && apiTeam.id === followed.teamId) return true;
+  const followedSeed = nationalSeedForTeam(followed);
+  const followedCodes = [followed.tla, followedSeed?.countryCode].filter(Boolean).map((item) => item!.toUpperCase());
+  if (apiTeam.tla && followedCodes.includes(apiTeam.tla.toUpperCase())) return true;
+  const names = [apiTeam.name, apiTeam.shortName].filter(Boolean).map((item) => normalizeName(item!));
+  const followedNames = [followed.name, followed.shortName, ...(followedSeed?.aliases ?? [])].filter(Boolean).map((item) => normalizeName(item));
+  return names.some((name) => followedNames.includes(name));
+}
+
+function worldCupTeamFromApi(team: { id: number; name: string; shortName?: string; tla?: string }): TeamRecord {
+  return {
+    teamId: team.id,
+    name: team.name,
+    shortName: team.shortName || team.name,
+    tla: team.tla || "",
+    leagueCode: WORLD_CUP_CODE,
+  };
+}
+
+function resolveWorldCupTeam(followed: TeamRecord, teams: TeamRecord[]): TeamRecord {
+  return teams.find((team) => sameWorldCupTeam({ id: team.teamId, name: team.name, shortName: team.shortName, tla: team.tla }, followed)) ?? followed;
+}
+
+function matchIncludesTeam(match: MatchEntry, team: TeamRecord): boolean {
+  return sameWorldCupTeam(match.homeTeam, team) || sameWorldCupTeam(match.awayTeam, team);
+}
+
+function activeMatch(match: MatchEntry): boolean {
+  return ["IN_PLAY", "PAUSED", "LIVE"].includes(match.status);
+}
+
+function scheduledMatch(match: MatchEntry): boolean {
+  return ["SCHEDULED", "TIMED"].includes(match.status);
+}
+
+function finishedMatch(match: MatchEntry): boolean {
+  return match.status === "FINISHED";
+}
+
+function todayMatch(match: MatchEntry): boolean {
+  return match.utcDate.slice(0, 10) === todayStr();
+}
+
+function scorePair(match: MatchEntry): { home: number | null; away: number | null } {
+  return match.score.fullTime ?? match.score.regularTime ?? { home: null, away: null };
+}
+
+function hasPenaltyScore(match: MatchEntry): boolean {
+  const penalties = match.score.penalties;
+  return penalties?.home != null || penalties?.away != null || match.score.duration === "PENALTY_SHOOTOUT";
+}
+
+function matchStatusText(match: MatchEntry): string {
+  if (activeMatch(match)) return match.status === "PAUSED" ? "HT" : "LIVE";
+  if (finishedMatch(match)) return hasPenaltyScore(match) ? "FT pens" : "FT";
+  if (scheduledMatch(match)) return fmtLocalDateTime(match.utcDate);
+  return match.status.replace(/_/g, " ").toLowerCase();
+}
+
+function matchLine(match: MatchEntry): string {
+  const score = scorePair(match);
+  const home = shortTeamName(match.homeTeam);
+  const away = shortTeamName(match.awayTeam);
+  const middle = score.home == null || score.away == null ? "vs" : `${score.home}-${score.away}`;
+  const group = match.group ? ` | ${match.group}` : "";
+  return `${home} ${middle} ${away} | ${matchStatusText(match)}${group}`;
+}
+
+function chooseWorldCupMatch(matches: MatchEntry[], followed: TeamRecord): MatchEntry | null {
+  const followedMatches = matches.filter((match) => matchIncludesTeam(match, followed));
+  const active = followedMatches.filter(activeMatch).sort((a, b) => a.utcDate.localeCompare(b.utcDate))[0];
+  if (active) return active;
+  const next = followedMatches.filter(scheduledMatch).sort((a, b) => a.utcDate.localeCompare(b.utcDate))[0];
+  if (next) return next;
+  return followedMatches.filter(finishedMatch).sort((a, b) => b.utcDate.localeCompare(a.utcDate))[0] ?? null;
+}
+
+function findWorldCupStanding(snapshot: WorldCupSnapshot): { group?: string; row: StandingTableRow; table: StandingTableRow[] } | null {
+  for (const standing of snapshot.standings) {
+    if (standing.type !== "TOTAL") continue;
+    const row = standing.table.find((item) => sameWorldCupTeam(item.team, snapshot.team));
+    if (row) return { group: standing.group, row, table: standing.table };
+  }
+  return null;
+}
+
+function worldCupGoalsLine(match: MatchEntry | null, followed?: TeamRecord): string | null {
+  const goals = (match?.goals ?? [])
+    .filter((goal) => goal.scorer?.name)
+    .slice(0, 4)
+    .map((goal) => {
+      const teamMark = followed && goal.team && sameWorldCupTeam(goal.team, followed) ? "" : goal.team?.name ? `${goal.team.name}: ` : "";
+      const minute = goal.minute ? ` ${goal.minute}'` : "";
+      return `${teamMark}${goal.scorer!.name}${minute}`;
+    });
+  return goals.length ? `Goals: ${goals.join(", ")}` : null;
+}
+
+function worldCupFlagsLine(match: MatchEntry | null): string | null {
+  if (!match) return null;
+  const flags: string[] = [];
+  const redCards = (match.bookings ?? []).filter((booking) => booking.card === "RED_CARD" || booking.card === "SECOND_YELLOW");
+  if (redCards.length) flags.push(`${redCards.length} red card${redCards.length > 1 ? "s" : ""}`);
+  if (hasPenaltyScore(match)) {
+    const p = match.score.penalties;
+    flags.push(p?.home != null && p?.away != null ? `pens ${p.home}-${p.away}` : "penalty shootout");
+  }
+  return flags.length ? `Notes: ${flags.join(" | ")}` : null;
+}
+
+function worldCupCacheFresh(snapshot: WorldCupSnapshot): boolean {
+  const matchday = snapshot.matches.some((match) => todayMatch(match) || activeMatch(match));
+  const ttl = matchday ? WORLD_CUP_MATCHDAY_TTL_MS : WORLD_CUP_SNAPSHOT_TTL_MS;
+  return Date.now() - snapshot.timestamp < ttl;
+}
+
+async function fetchWorldCupTeams(token: string): Promise<TeamRecord[]> {
+  const data = (await apiFetch(`/competitions/${WORLD_CUP_CODE}/teams`, token)) as {
+    teams?: Array<{ id: number; name: string; shortName?: string; tla?: string }>;
+  };
+  return (data.teams ?? []).map(worldCupTeamFromApi);
+}
+
+async function fetchWorldCupMatches(token: string): Promise<MatchEntry[]> {
+  const data = (await apiFetch(`/competitions/${WORLD_CUP_CODE}/matches?dateFrom=${offsetDateStr(-7)}&dateTo=${offsetDateStr(30)}`, token)) as { matches?: MatchEntry[] };
+  return data.matches ?? [];
+}
+
+async function fetchWorldCupStandings(token: string): Promise<WorldCupStandingTable[]> {
+  const data = (await apiFetch(`/competitions/${WORLD_CUP_CODE}/standings`, token)) as { standings?: WorldCupStandingTable[] };
+  return data.standings ?? [];
+}
+
+async function fetchWorldCupTopScorers(token: string): Promise<WorldCupScorerEntry[] | null> {
+  try {
+    const data = (await apiFetch(`/competitions/${WORLD_CUP_CODE}/scorers?limit=10`, token)) as { scorers?: WorldCupScorerEntry[] };
+    return data.scorers ?? [];
+  } catch {
+    return null;
+  }
+}
+
+async function fetchWorldCupMatchDetail(matchId: number, token: string): Promise<MatchEntry | null> {
+  try {
+    const data = (await apiFetch(`/matches/${matchId}`, token)) as { match?: MatchEntry } & MatchEntry;
+    return data.match ?? data;
+  } catch {
+    return null;
+  }
+}
+
+async function syncWorldCupData(config: SoccerConfig, token: string, options?: { force?: boolean }): Promise<WorldCupSnapshot> {
+  const followed = followedWorldCupTeam(config);
+  if (!followed) throw new Error("World Cup country is not set.");
+  const cache = readSnapshotCache();
+  if (!options?.force && cache.worldCup && sameWorldCupTeam(cache.worldCup.team, followed) && worldCupCacheFresh(cache.worldCup)) {
+    return cache.worldCup;
+  }
+
+  const [teamsResult, matchesResult, standingsResult, scorersResult] = await Promise.allSettled([
+    fetchWorldCupTeams(token),
+    fetchWorldCupMatches(token),
+    fetchWorldCupStandings(token),
+    fetchWorldCupTopScorers(token),
+  ]);
+
+  const teams = teamsResult.status === "fulfilled" && teamsResult.value.length ? teamsResult.value : NATIONAL_TEAMS;
+  const team = resolveWorldCupTeam(followed, teams);
+  const matches = matchesResult.status === "fulfilled" ? matchesResult.value : cache.worldCup?.matches ?? [];
+  const standings = standingsResult.status === "fulfilled" ? standingsResult.value : cache.worldCup?.standings ?? [];
+  const topScorers = scorersResult.status === "fulfilled" ? scorersResult.value : null;
+  const topScorersAvailable = Array.isArray(topScorers);
+
+  if (matchesResult.status === "rejected" && standingsResult.status === "rejected" && teamsResult.status === "rejected" && cache.worldCup) {
+    return cache.worldCup;
+  }
+
+  const snapshot: WorldCupSnapshot = {
+    timestamp: Date.now(),
+    fetchedAt: Date.now(),
+    team,
+    teams,
+    matches,
+    standings,
+    topScorers,
+    topScorersAvailable,
+  };
+  writeSnapshotCache({ ...cache, worldCup: snapshot });
+  return snapshot;
+}
+
+function renderWorldCupSnapshot(snapshot: WorldCupSnapshot, theme: Theme): string[] {
+  const match = chooseWorldCupMatch(snapshot.matches, snapshot.team);
+  const standing = findWorldCupStanding(snapshot);
+  const lines: string[] = [];
+  const teamPart = theme.fg("accent", snapshot.team.shortName || snapshot.team.name);
+  const cacheHint = theme.fg("dim", `cache ${ageText(snapshot.fetchedAt)} | sync ~${snapshot.matches.some((item) => todayMatch(item) || activeMatch(item)) ? "10m" : "60m"}`);
+  lines.push(`World Cup: ${teamPart}${standing ? theme.fg("dim", ` | ${standing.group ?? "group"} #${standing.row.position} | ${standing.row.points}pts`) : ""} | ${cacheHint}`);
+
+  if (match) {
+    lines.push(matchLine(match));
+    const goals = worldCupGoalsLine(match, snapshot.team);
+    if (goals) lines.push(goals);
+    const standingLine = standing ? `Group: #${standing.row.position}, ${standing.row.points}pts/${standing.row.playedGames} played${standing.group ? ` | ${standing.group}` : ""}` : null;
+    const flags = worldCupFlagsLine(match);
+    if (flags) lines.push(flags);
+    if (standingLine && lines.length < 5) lines.push(theme.fg("dim", standingLine));
+    if (!activeMatch(match) && lines.length < 5) {
+      const todays = snapshot.matches.filter(todayMatch).sort((a, b) => a.utcDate.localeCompare(b.utcDate)).slice(0, 2);
+      if (todays.length) lines.push(`Today: ${todays.map(matchLine).join("; ")}`);
+    }
+  } else {
+    lines.push(theme.fg("dim", "Followed country: no match in current window"));
+    const todays = snapshot.matches.filter(todayMatch).sort((a, b) => a.utcDate.localeCompare(b.utcDate)).slice(0, 2);
+    if (todays.length) lines.push(`Today: ${todays.map(matchLine).join("; ")}`);
+    if (standing) lines.push(theme.fg("dim", `Group: #${standing.row.position}, ${standing.row.points}pts/${standing.row.playedGames} played${standing.group ? ` | ${standing.group}` : ""}`));
+  }
+
+  return lines.slice(0, 5);
+}
+
+async function refreshWorldCupWidget(setWidget: SetWidget, theme: Theme, config: SoccerConfig, options?: { forceSync?: boolean }): Promise<void> {
+  const { token } = resolveApiToken();
+  if (!token) {
+    setWidget(WIDGET_ID, renderNoToken(theme));
+    return;
+  }
+  const followed = followedWorldCupTeam(config);
+  if (!followed) {
+    setWidget(WIDGET_ID, [theme.fg("dim", "World Cup: no followed country yet. Run /soccer:worldcup")]);
+    return;
+  }
+  setWidget(WIDGET_ID, [theme.fg("dim", `World Cup: ${followed.shortName || followed.name} Loading...`)]);
+  try {
+    const snapshot = await syncWorldCupData(config, token, { force: options?.forceSync });
+    setWidget(WIDGET_ID, renderWorldCupSnapshot(snapshot, theme));
+  } catch (err) {
+    const stale = readSnapshotCache().worldCup;
+    if (stale) {
+      setWidget(WIDGET_ID, renderWorldCupSnapshot(stale, theme));
+      return;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    setWidget(WIDGET_ID, renderError(msg, theme));
+  }
+}
+
+function formatWorldCupToday(snapshot: WorldCupSnapshot): string {
+  const matches = snapshot.matches.filter(todayMatch).sort((a, b) => a.utcDate.localeCompare(b.utcDate));
+  if (!matches.length) return "World Cup today: no matches found.";
+  return `World Cup today:\n${matches.slice(0, 8).map((match) => `- ${matchLine(match)}`).join("\n")}`;
+}
+
+function formatWorldCupGroup(snapshot: WorldCupSnapshot): string {
+  const standing = findWorldCupStanding(snapshot);
+  if (!standing) return "World Cup group table: not available.";
+  const rows = standing.table
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((row) => `${row.position}. ${row.team.shortName || row.team.name} ${row.points}pts (${row.playedGames} played)`);
+  return `World Cup ${standing.group ?? "group"}:\n${rows.join("\n")}`;
+}
+
+function formatWorldCupTopScorers(snapshot: WorldCupSnapshot): string {
+  if (!snapshot.topScorersAvailable || !snapshot.topScorers?.length) return "World Cup top scorers: not available.";
+  const rows = snapshot.topScorers.slice(0, 10).map((entry, index) => {
+    const name = entry.player?.name ?? "Unknown player";
+    const team = entry.team?.shortName ?? entry.team?.name ?? entry.player?.nationality ?? "";
+    return `${index + 1}. ${name}${team ? ` (${team})` : ""} - ${entry.goals ?? 0}`;
+  });
+  return `World Cup top scorers:\n${rows.join("\n")}`;
+}
+
+function formatWorldCupMatchDetail(match: MatchEntry | null, snapshot: WorldCupSnapshot): string {
+  if (!match) return "World Cup match detail: not available.";
+  const lines = [`World Cup match detail:`, matchLine(match)];
+  if (match.stage || match.group || match.matchday) {
+    lines.push([match.stage, match.group, match.matchday ? `matchday ${match.matchday}` : undefined].filter(Boolean).join(" | "));
+  }
+  const goals = worldCupGoalsLine(match, snapshot.team);
+  if (goals) lines.push(goals);
+  const flags = worldCupFlagsLine(match);
+  if (flags) lines.push(flags);
+  if (match.lastUpdated) lines.push(`Updated: ${fmtLocalDateTime(match.lastUpdated)}`);
+  return lines.join("\n");
 }
 
 function localeRegion(locale?: string): string | undefined {
@@ -1029,14 +1383,19 @@ function renderSnapshot(snapshot: TeamSnapshot, config: SoccerConfig, theme: The
 }
 
 async function refreshWidget(setWidget: SetWidget, theme: Theme, options?: { forceSync?: boolean }): Promise<void> {
+  const config = currentConfig ?? readConfig();
+  currentConfig = config;
+
+  if (shouldUseWorldCupWidget(config)) {
+    await refreshWorldCupWidget(setWidget, theme, config, options);
+    return;
+  }
+
   const { token } = resolveApiToken();
   if (!token) {
     setWidget(WIDGET_ID, renderNoToken(theme));
     return;
   }
-
-  const config = currentConfig ?? readConfig();
-  currentConfig = config;
 
   if (config.teams.length === 0) {
     setWidget(WIDGET_ID, renderNoTeams(theme));
@@ -1186,11 +1545,58 @@ async function showWorldCupMenu(ctx: any, config: SoccerConfig): Promise<void> {
 
   if (selected === "Settings") {
     const current = followedWorldCupTeam(config);
-    showText(ctx, `World Cup settings:\nFollowed country: ${current ? nationalTeamLabel(current) : "not set"}`);
+    const mode = shouldUseWorldCupWidget(config) ? "World Cup" : "club";
+    const choice = await ctx.ui.select(`World Cup settings | default widget: ${mode}`, [
+      "Use World Cup widget",
+      "Use club widget",
+      "Show current settings",
+    ]);
+    if (choice === "Use World Cup widget" || choice === "Use club widget") {
+      const next = setWorldCupWidgetMode(config, choice === "Use World Cup widget" ? "worldcup" : "club");
+      writeConfig(next);
+      currentConfig = next;
+      showText(ctx, `World Cup default widget: ${choice === "Use World Cup widget" ? "World Cup" : "club"}`);
+      await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme, { forceSync: false });
+      return;
+    }
+    showText(ctx, `World Cup settings:\nFollowed country: ${current ? nationalTeamLabel(current) : "not set"}\nDefault widget: ${mode}`);
     return;
   }
 
-  showText(ctx, `${selected} will be available in the World Cup data view slice.`);
+  const { token } = resolveApiToken();
+  if (!token) {
+    showText(ctx, "Football-data API key is not set. Run /soccer:setup.", "warning");
+    return;
+  }
+
+  let snapshot: WorldCupSnapshot;
+  try {
+    snapshot = await syncWorldCupData(config, token, { force: selected === "Match detail" });
+  } catch (err) {
+    showText(ctx, err instanceof Error ? err.message : String(err), "warning");
+    return;
+  }
+
+  if (selected === "Today's matches") {
+    showText(ctx, formatWorldCupToday(snapshot));
+    return;
+  }
+
+  if (selected === "Group table") {
+    showText(ctx, formatWorldCupGroup(snapshot));
+    return;
+  }
+
+  if (selected === "Top scorers") {
+    showText(ctx, formatWorldCupTopScorers(snapshot), snapshot.topScorersAvailable ? "info" : "warning");
+    return;
+  }
+
+  if (selected === "Match detail") {
+    const baseMatch = chooseWorldCupMatch(snapshot.matches, snapshot.team);
+    const detail = baseMatch?.id ? await fetchWorldCupMatchDetail(baseMatch.id, token) : null;
+    showText(ctx, formatWorldCupMatchDetail(detail ?? baseMatch, snapshot), detail || baseMatch ? "info" : "warning");
+  }
 }
 
 async function handleWorldCupCommand(_args: string, ctx: any): Promise<void> {
@@ -1398,12 +1804,16 @@ export const __testing = {
   editDistance,
   findNationalTeams,
   followedWorldCupTeam,
+  formatWorldCupGroup,
+  formatWorldCupTopScorers,
   fuzzyScore,
   guessWorldCupCountryFromConfiguredEnv,
   guessWorldCupCountryFromLocaleTimezone,
+  renderWorldCupSnapshot,
   normalizeName,
   scoreTeamMatch,
   setFollowedWorldCupTeam,
+  shouldUseWorldCupWidget,
   teamFromConfigArg,
 };
 
@@ -1418,9 +1828,10 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
       clearInterval(refreshTimer);
       refreshTimer = null;
     }
+    const intervalMs = shouldUseWorldCupWidget(currentConfig) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
     refreshTimer = setInterval(async () => {
       await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme);
-    }, SNAPSHOT_TTL_MS);
+    }, intervalMs);
     refreshTimer.unref?.();
   });
 

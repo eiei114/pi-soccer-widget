@@ -40,7 +40,8 @@ async function withExtension(fn) {
   try {
     const extensionUrl = pathToFileURL(join(process.cwd(), "dist", "extensions", "index.js"));
     extensionUrl.searchParams.set("worldCupRun", String(testRun++));
-    const { default: soccerWidgetExtension } = await import(extensionUrl.href);
+    const mod = await import(extensionUrl.href);
+    const { default: soccerWidgetExtension, __testing } = mod;
     const commands = new Map();
     soccerWidgetExtension({
       on() {},
@@ -48,7 +49,7 @@ async function withExtension(fn) {
         commands.set(name, definition);
       },
     });
-    await fn({ commands, agentDir, configFile });
+    await fn({ commands, agentDir, configFile, testing: __testing });
   } finally {
     rmSync(tmpHome, { recursive: true, force: true });
     for (const [name, value] of Object.entries(previousEnv)) restoreEnv(name, value);
@@ -186,6 +187,66 @@ test("/soccer worldcup is not a World Cup command path", async () => {
     assert.equal(selects.length, 0);
     assert.equal(confirms.length, 0);
     assert.match(notifications.at(-1)?.text ?? "", /API key is not set/);
+  });
+});
+
+test("World Cup widget uses the group containing the followed country and keeps event strip compact", async () => {
+  await withExtension(async ({ testing }) => {
+    const team = { teamId: 900017, name: "Japan", shortName: "Japan", tla: "JPN", leagueCode: "WC" };
+    const snapshot = {
+      timestamp: Date.now(),
+      fetchedAt: Date.now(),
+      team,
+      teams: [team],
+      matches: [{
+        id: 1,
+        utcDate: new Date().toISOString(),
+        status: "IN_PLAY",
+        group: "Group B",
+        homeTeam: { id: 900017, name: "Japan", shortName: "Japan", tla: "JPN" },
+        awayTeam: { id: 2, name: "Germany", shortName: "Germany", tla: "GER" },
+        score: { winner: null, fullTime: { home: 2, away: 2 }, penalties: { home: 4, away: 3 } },
+        goals: [
+          { minute: 12, team: { id: 900017, name: "Japan" }, scorer: { name: "Aoki" } },
+          { minute: 44, team: { id: 2, name: "Germany" }, scorer: { name: "Muller" } },
+        ],
+        bookings: [{ minute: 80, team: { id: 2, name: "Germany" }, player: { name: "Schmidt" }, card: "RED_CARD" }],
+      }],
+      standings: [
+        { type: "TOTAL", group: "Group A", table: [{ position: 1, points: 6, playedGames: 2, team: { id: 3, name: "Canada" } }] },
+        { type: "TOTAL", group: "Group B", table: [{ position: 2, points: 4, playedGames: 2, team: { id: 900017, name: "Japan", tla: "JPN" } }] },
+      ],
+      topScorers: null,
+      topScorersAvailable: false,
+    };
+
+    const lines = testing.renderWorldCupSnapshot(snapshot, { fg: (_color, text) => text });
+    const text = lines.join("\n");
+
+    assert.match(text, /Group B #2/);
+    assert.doesNotMatch(text, /Group A/);
+    assert.match(text, /Goals: Aoki 12', Germany: Muller 44'/);
+    assert.match(text, /Notes: 1 red card \| pens 4-3/);
+    assert.match(text, /sync ~10m/);
+  });
+});
+
+test("World Cup top scorers view degrades to not available", async () => {
+  await withExtension(async ({ testing }) => {
+    const text = testing.formatWorldCupTopScorers({ topScorers: null, topScorersAvailable: false });
+    assert.equal(text, "World Cup top scorers: not available.");
+  });
+});
+
+test("World Cup default widget mode does not change existing club widget unless forced", async () => {
+  await withExtension(async ({ testing }) => {
+    const club = { teamId: 86, name: "Real Madrid", shortName: "Real Madrid", tla: "RMA", leagueCode: "PD" };
+    const japan = { teamId: 900017, name: "Japan", shortName: "Japan", tla: "JPN", leagueCode: "WC" };
+    const worldCup = { followedTeamId: 900017, teams: [japan], countryCode: "JPN", updatedAt: "2026-05-01T00:00:00Z" };
+
+    assert.equal(testing.shouldUseWorldCupWidget({ favoriteTeamId: 86, teams: [club], worldCup, updatedAt: "2026-05-01T00:00:00Z" }), false);
+    assert.equal(testing.shouldUseWorldCupWidget({ favoriteTeamId: null, teams: [], worldCup, updatedAt: "2026-05-01T00:00:00Z" }), true);
+    assert.equal(testing.shouldUseWorldCupWidget({ favoriteTeamId: 86, teams: [club], worldCup: { ...worldCup, widgetMode: "worldcup" }, updatedAt: "2026-05-01T00:00:00Z" }), true);
   });
 });
 
