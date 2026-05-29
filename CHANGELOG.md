@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added `/soccer:worldcup` and `/soccer:wc` World Cup menu entry points.
+- Added first-run followed country setup with environment/locale guesses, confirmation, manual search, and backward-compatible config persistence.
+
 ## 0.2.0 - 2026-05-29
 
 - Added top-level `/soccer:*` command aliases such as `/soccer:status`, `/soccer:setup`, and `/soccer:search` while keeping `/soccer status` compatibility.

@@ -10,6 +10,7 @@
  *
  * Optional env:
  *   PI_SOCCER_TEAM           - default team name, e.g. "Barcelona" (default: "Real Madrid")
+ *   PI_SOCCER_COUNTRY        - default World Cup country, e.g. "Japan" or "JPN"
  *   PI_SOCCER_REFRESH_MIN    - refresh interval in minutes (default: 15)
  *   PI_SOCCER_LEAGUES        - comma-separated football-data league codes
  *
@@ -24,6 +25,8 @@
  *   /soccer:favorite <query|n> - set favorite team
  *   /soccer:list             - show watchlist
  *   /soccer:remove <query|n> - remove team from watchlist
+ *   /soccer:worldcup         - open World Cup menu / followed country setup
+ *   /soccer:wc               - alias for /soccer:worldcup
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -80,6 +83,20 @@ const COLON_COMMAND_ALIASES = [
   { name: "soccer:rm", command: "remove", description: "remove a watchlist team" },
 ] as const;
 
+const WORLD_CUP_MENU_ITEMS = [
+  "Follow my country",
+  "Today's matches",
+  "Group table",
+  "Match detail",
+  "Top scorers",
+  "Settings",
+] as const;
+
+const WORLD_CUP_COMMAND_ALIASES = [
+  { name: "soccer:worldcup", description: "open World Cup menu and followed country setup" },
+  { name: "soccer:wc", description: "alias for /soccer:worldcup" },
+] as const;
+
 type Notify = (msg: string, level: "info" | "warning" | "error") => void;
 type SetWidget = (id: string, lines: string[] | undefined) => void;
 type Theme = {
@@ -94,10 +111,18 @@ interface TeamRecord {
   leagueCode: string;
 }
 
+interface WorldCupConfig {
+  followedTeamId: number | null;
+  teams: TeamRecord[];
+  countryCode?: string;
+  updatedAt: string;
+}
+
 interface SoccerConfig {
   favoriteTeamId: number | null;
   teams: TeamRecord[];
   lastShownTeamId?: number;
+  worldCup?: WorldCupConfig;
   updatedAt: string;
 }
 
@@ -183,6 +208,92 @@ interface StandingTableRow {
   team: { id: number; name: string; shortName?: string; tla?: string };
 }
 
+type NationalTeamSeed = {
+  countryCode: string;
+  teamId: number;
+  name: string;
+  shortName: string;
+  aliases: string[];
+};
+
+const NATIONAL_TEAM_SEEDS: NationalTeamSeed[] = [
+  { countryCode: "ARG", teamId: 900001, name: "Argentina", shortName: "Argentina", aliases: ["AR", "Argentina", "Argentine Republic"] },
+  { countryCode: "AUS", teamId: 900002, name: "Australia", shortName: "Australia", aliases: ["AU", "Australia", "Socceroos"] },
+  { countryCode: "BEL", teamId: 900003, name: "Belgium", shortName: "Belgium", aliases: ["BE", "Belgium"] },
+  { countryCode: "BRA", teamId: 900004, name: "Brazil", shortName: "Brazil", aliases: ["BR", "Brazil", "Brasil"] },
+  { countryCode: "CAN", teamId: 900005, name: "Canada", shortName: "Canada", aliases: ["CA", "Canada"] },
+  { countryCode: "CHI", teamId: 900006, name: "Chile", shortName: "Chile", aliases: ["CL", "Chile"] },
+  { countryCode: "COL", teamId: 900007, name: "Colombia", shortName: "Colombia", aliases: ["CO", "Colombia"] },
+  { countryCode: "CRO", teamId: 900008, name: "Croatia", shortName: "Croatia", aliases: ["HR", "Croatia", "Hrvatska"] },
+  { countryCode: "DEN", teamId: 900009, name: "Denmark", shortName: "Denmark", aliases: ["DK", "Denmark"] },
+  { countryCode: "ECU", teamId: 900010, name: "Ecuador", shortName: "Ecuador", aliases: ["EC", "Ecuador"] },
+  { countryCode: "ENG", teamId: 900011, name: "England", shortName: "England", aliases: ["GB", "UK", "United Kingdom", "England"] },
+  { countryCode: "FRA", teamId: 900012, name: "France", shortName: "France", aliases: ["FR", "France"] },
+  { countryCode: "GER", teamId: 900013, name: "Germany", shortName: "Germany", aliases: ["DE", "Germany", "Deutschland"] },
+  { countryCode: "GHA", teamId: 900014, name: "Ghana", shortName: "Ghana", aliases: ["GH", "Ghana"] },
+  { countryCode: "IRN", teamId: 900015, name: "Iran", shortName: "Iran", aliases: ["IR", "Iran", "Islamic Republic of Iran"] },
+  { countryCode: "ITA", teamId: 900016, name: "Italy", shortName: "Italy", aliases: ["IT", "Italy", "Italia"] },
+  { countryCode: "JPN", teamId: 900017, name: "Japan", shortName: "Japan", aliases: ["JP", "Japan", "Nippon", "Nihon", "日本"] },
+  { countryCode: "KOR", teamId: 900018, name: "South Korea", shortName: "South Korea", aliases: ["KR", "Korea", "South Korea", "Republic of Korea"] },
+  { countryCode: "MAR", teamId: 900019, name: "Morocco", shortName: "Morocco", aliases: ["MA", "Morocco"] },
+  { countryCode: "MEX", teamId: 900020, name: "Mexico", shortName: "Mexico", aliases: ["MX", "Mexico", "México"] },
+  { countryCode: "NED", teamId: 900021, name: "Netherlands", shortName: "Netherlands", aliases: ["NL", "Netherlands", "Holland"] },
+  { countryCode: "NZL", teamId: 900022, name: "New Zealand", shortName: "New Zealand", aliases: ["NZ", "New Zealand"] },
+  { countryCode: "POL", teamId: 900023, name: "Poland", shortName: "Poland", aliases: ["PL", "Poland", "Polska"] },
+  { countryCode: "POR", teamId: 900024, name: "Portugal", shortName: "Portugal", aliases: ["PT", "Portugal"] },
+  { countryCode: "QAT", teamId: 900025, name: "Qatar", shortName: "Qatar", aliases: ["QA", "Qatar"] },
+  { countryCode: "KSA", teamId: 900026, name: "Saudi Arabia", shortName: "Saudi Arabia", aliases: ["SA", "Saudi Arabia", "Saudi"] },
+  { countryCode: "SEN", teamId: 900027, name: "Senegal", shortName: "Senegal", aliases: ["SN", "Senegal"] },
+  { countryCode: "SRB", teamId: 900028, name: "Serbia", shortName: "Serbia", aliases: ["RS", "Serbia"] },
+  { countryCode: "ESP", teamId: 900029, name: "Spain", shortName: "Spain", aliases: ["ES", "Spain", "España"] },
+  { countryCode: "SUI", teamId: 900030, name: "Switzerland", shortName: "Switzerland", aliases: ["CH", "Switzerland", "Suisse", "Schweiz"] },
+  { countryCode: "TUN", teamId: 900031, name: "Tunisia", shortName: "Tunisia", aliases: ["TN", "Tunisia"] },
+  { countryCode: "URU", teamId: 900032, name: "Uruguay", shortName: "Uruguay", aliases: ["UY", "Uruguay"] },
+  { countryCode: "USA", teamId: 900033, name: "United States", shortName: "United States", aliases: ["US", "USA", "United States", "United States of America", "America"] },
+  { countryCode: "WAL", teamId: 900034, name: "Wales", shortName: "Wales", aliases: ["Wales", "Cymru"] },
+];
+
+const NATIONAL_TEAMS: TeamRecord[] = NATIONAL_TEAM_SEEDS.map((seed) => ({
+  teamId: seed.teamId,
+  name: seed.name,
+  shortName: seed.shortName,
+  tla: seed.countryCode,
+  leagueCode: "WC",
+}));
+
+const LOCALE_REGION_TO_WORLD_CUP_CODE: Record<string, string> = Object.fromEntries(
+  NATIONAL_TEAM_SEEDS.flatMap((seed) => seed.aliases.filter((alias) => /^[A-Z]{2}$/.test(alias)).map((alias) => [alias, seed.countryCode])),
+);
+
+const TIME_ZONE_TO_WORLD_CUP_CODE: Record<string, string> = {
+  "America/Argentina/Buenos_Aires": "ARG",
+  "America/Bogota": "COL",
+  "America/Denver": "USA",
+  "America/Los_Angeles": "USA",
+  "America/Mexico_City": "MEX",
+  "America/New_York": "USA",
+  "America/Santiago": "CHI",
+  "America/Sao_Paulo": "BRA",
+  "America/Toronto": "CAN",
+  "Asia/Riyadh": "KSA",
+  "Asia/Seoul": "KOR",
+  "Asia/Tehran": "IRN",
+  "Asia/Tokyo": "JPN",
+  "Australia/Sydney": "AUS",
+  "Europe/Amsterdam": "NED",
+  "Europe/Belgrade": "SRB",
+  "Europe/Berlin": "GER",
+  "Europe/Brussels": "BEL",
+  "Europe/Copenhagen": "DEN",
+  "Europe/Lisbon": "POR",
+  "Europe/London": "ENG",
+  "Europe/Madrid": "ESP",
+  "Europe/Paris": "FRA",
+  "Europe/Rome": "ITA",
+  "Europe/Warsaw": "POL",
+  "Europe/Zagreb": "CRO",
+};
+
 let currentConfig: SoccerConfig | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -239,6 +350,18 @@ function uniqueTeams(teams: TeamRecord[]): TeamRecord[] {
   });
 }
 
+function normalizeWorldCupConfig(value?: WorldCupConfig): WorldCupConfig | undefined {
+  if (!value || !Array.isArray(value.teams)) return undefined;
+  const teams = uniqueTeams(value.teams).map((team) => ({ ...team, leagueCode: "WC" }));
+  const followedTeamId = value.followedTeamId ?? teams[0]?.teamId ?? null;
+  return {
+    followedTeamId,
+    teams,
+    countryCode: value.countryCode ?? teams.find((team) => team.teamId === followedTeamId)?.tla,
+    updatedAt: value.updatedAt ?? nowIso(),
+  };
+}
+
 function readConfig(): SoccerConfig {
   const existing = readJson<SoccerConfig>(CONFIG_FILE);
   if (existing && Array.isArray(existing.teams)) {
@@ -246,6 +369,7 @@ function readConfig(): SoccerConfig {
       favoriteTeamId: existing.favoriteTeamId ?? existing.teams[0]?.teamId ?? null,
       teams: uniqueTeams(existing.teams),
       lastShownTeamId: existing.lastShownTeamId,
+      worldCup: normalizeWorldCupConfig(existing.worldCup),
       updatedAt: existing.updatedAt ?? nowIso(),
     };
   }
@@ -272,9 +396,11 @@ function readConfig(): SoccerConfig {
 }
 
 function writeConfig(config: SoccerConfig): void {
+  const worldCup = normalizeWorldCupConfig(config.worldCup);
   currentConfig = {
     ...config,
     teams: uniqueTeams(config.teams),
+    ...(worldCup ? { worldCup: { ...worldCup, updatedAt: nowIso() } } : { worldCup: undefined }),
     updatedAt: nowIso(),
   };
   writeJson(CONFIG_FILE, currentConfig);
@@ -443,6 +569,100 @@ function shortTeamName(t: { name: string; shortName: string }): string {
 function teamLabel(team: TeamRecord): string {
   const tla = team.tla ? ` | ${team.tla}` : "";
   return `${team.shortName || team.name} | ${team.leagueCode}${tla}`;
+}
+
+function nationalTeamLabel(team: TeamRecord): string {
+  return `${team.name} | ${team.tla} | ${team.leagueCode}`;
+}
+
+function nationalSeedForTeam(team: TeamRecord): NationalTeamSeed | undefined {
+  return NATIONAL_TEAM_SEEDS.find((seed) => seed.teamId === team.teamId || seed.countryCode === team.tla);
+}
+
+function nationalTeamByCountryCode(code: string): TeamRecord | undefined {
+  const normalized = code.trim().toUpperCase();
+  const seed = NATIONAL_TEAM_SEEDS.find((item) => item.countryCode === normalized);
+  return seed ? NATIONAL_TEAMS.find((team) => team.teamId === seed.teamId) : undefined;
+}
+
+function findNationalTeams(query: string): TeamRecord[] {
+  const raw = String(query ?? "").trim();
+  if (!raw) return [];
+  const upper = raw.toUpperCase();
+  const normalized = normalizeName(raw);
+
+  const scored = NATIONAL_TEAM_SEEDS.map((seed) => {
+    const team = NATIONAL_TEAMS.find((item) => item.teamId === seed.teamId)!;
+    const aliasScores = seed.aliases.map((alias) => {
+      if (alias.toUpperCase() === upper) return 130;
+      return fuzzyScore(normalized, alias);
+    });
+    const score = Math.max(
+      seed.countryCode === upper ? 140 : 0,
+      scoreTeamMatch(normalized, team),
+      ...aliasScores,
+    );
+    return { team, score };
+  });
+
+  return scored
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.team.name.localeCompare(b.team.name))
+    .slice(0, 8)
+    .map((item) => item.team);
+}
+
+function followedWorldCupTeam(config: SoccerConfig): TeamRecord | null {
+  const worldCup = normalizeWorldCupConfig(config.worldCup);
+  if (!worldCup) return null;
+  return worldCup.teams.find((team) => team.teamId === worldCup.followedTeamId) ?? worldCup.teams[0] ?? null;
+}
+
+function setFollowedWorldCupTeam(config: SoccerConfig, team: TeamRecord): SoccerConfig {
+  const wcTeam = { ...team, leagueCode: "WC" };
+  const existing = normalizeWorldCupConfig(config.worldCup);
+  return {
+    ...config,
+    worldCup: {
+      followedTeamId: wcTeam.teamId,
+      teams: uniqueTeams([...(existing?.teams ?? []), wcTeam]),
+      countryCode: nationalSeedForTeam(wcTeam)?.countryCode ?? wcTeam.tla,
+      updatedAt: nowIso(),
+    },
+  };
+}
+
+function localeRegion(locale?: string): string | undefined {
+  if (!locale) return undefined;
+  const match = locale.replace("_", "-").match(/-([A-Za-z]{2})(?:-|$)/);
+  return match?.[1]?.toUpperCase();
+}
+
+function resolveLocale(): string | undefined {
+  return process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || Intl.DateTimeFormat().resolvedOptions().locale;
+}
+
+function resolveTimeZone(): string | undefined {
+  return process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+function guessWorldCupCountryFromConfiguredEnv(): { team: TeamRecord; source: string } | null {
+  const raw = String(process.env.PI_SOCCER_COUNTRY ?? "").trim();
+  if (!raw) return null;
+  const team = findNationalTeams(raw)[0];
+  return team ? { team, source: "PI_SOCCER_COUNTRY" } : null;
+}
+
+function guessWorldCupCountryFromLocaleTimezone(): { team: TeamRecord; source: string } | null {
+  const region = localeRegion(resolveLocale());
+  const countryCode = region ? LOCALE_REGION_TO_WORLD_CUP_CODE[region] : undefined;
+  const localeTeam = countryCode ? nationalTeamByCountryCode(countryCode) : undefined;
+  if (localeTeam) return { team: localeTeam, source: "locale" };
+
+  const timeZone = resolveTimeZone();
+  const timeZoneCode = timeZone ? TIME_ZONE_TO_WORLD_CUP_CODE[timeZone] : undefined;
+  const timeZoneTeam = timeZoneCode ? nationalTeamByCountryCode(timeZoneCode) : undefined;
+  return timeZoneTeam ? { team: timeZoneTeam, source: "timezone" } : null;
 }
 
 async function loadLeagueTeams(code: string, token: string): Promise<TeamRecord[]> {
@@ -895,6 +1115,92 @@ async function pickTeam(ctx: any, token: string, options?: { addOnly?: boolean }
   return index >= 0 ? results[index] : null;
 }
 
+async function confirmGuessedWorldCupCountry(ctx: any, team: TeamRecord, source: string): Promise<boolean> {
+  const title = `Follow ${team.name}?`;
+  const detail = `Suggested from ${source}. Confirm before saving as your World Cup country.`;
+  if (typeof ctx.ui.confirm === "function") return Boolean(await ctx.ui.confirm(title, detail));
+  const selected = await ctx.ui.select(`${title} ${detail}`, ["Yes", "No"]);
+  return selected === "Yes";
+}
+
+async function pickWorldCupCountry(ctx: any): Promise<TeamRecord | null> {
+  const query = String(await ctx.ui.input("Search country to follow:", "e.g. Japan, USA, Brazil") ?? "").trim();
+  if (!query) return null;
+  const results = findNationalTeams(query);
+  if (results.length === 0) {
+    showText(ctx, `No countries found for "${query}".`, "warning");
+    return null;
+  }
+
+  const labels = results.map((team, index) => `${index + 1}. ${nationalTeamLabel(team)}`);
+  const selected = await ctx.ui.select("Choose World Cup country:", labels);
+  if (!selected) return null;
+  const index = labels.indexOf(selected);
+  return index >= 0 ? results[index] : null;
+}
+
+async function ensureWorldCupCountry(ctx: any, config: SoccerConfig): Promise<SoccerConfig | null> {
+  if (followedWorldCupTeam(config)) return config;
+
+  const configuredGuess = guessWorldCupCountryFromConfiguredEnv();
+  if (configuredGuess && await confirmGuessedWorldCupCountry(ctx, configuredGuess.team, configuredGuess.source)) {
+    const next = setFollowedWorldCupTeam(config, configuredGuess.team);
+    writeConfig(next);
+    showText(ctx, `World Cup country saved: ${nationalTeamLabel(configuredGuess.team)}`);
+    return next;
+  }
+
+  const localeGuess = guessWorldCupCountryFromLocaleTimezone();
+  if (localeGuess && await confirmGuessedWorldCupCountry(ctx, localeGuess.team, localeGuess.source)) {
+    const next = setFollowedWorldCupTeam(config, localeGuess.team);
+    writeConfig(next);
+    showText(ctx, `World Cup country saved: ${nationalTeamLabel(localeGuess.team)}`);
+    return next;
+  }
+
+  const picked = await pickWorldCupCountry(ctx);
+  if (!picked) {
+    showText(ctx, "World Cup country was not saved.", "warning");
+    return null;
+  }
+  const next = setFollowedWorldCupTeam(config, picked);
+  writeConfig(next);
+  showText(ctx, `World Cup country saved: ${nationalTeamLabel(picked)}`);
+  return next;
+}
+
+async function showWorldCupMenu(ctx: any, config: SoccerConfig): Promise<void> {
+  const followed = followedWorldCupTeam(config);
+  const title = followed ? `World Cup | ${followed.shortName}` : "World Cup";
+  const selected = await ctx.ui.select(title, [...WORLD_CUP_MENU_ITEMS]);
+  if (!selected) return;
+
+  if (selected === "Follow my country") {
+    const picked = await pickWorldCupCountry(ctx);
+    if (!picked) return;
+    const next = setFollowedWorldCupTeam(config, picked);
+    writeConfig(next);
+    showText(ctx, `World Cup country saved: ${nationalTeamLabel(picked)}`);
+    return;
+  }
+
+  if (selected === "Settings") {
+    const current = followedWorldCupTeam(config);
+    showText(ctx, `World Cup settings:\nFollowed country: ${current ? nationalTeamLabel(current) : "not set"}`);
+    return;
+  }
+
+  showText(ctx, `${selected} will be available in the World Cup data view slice.`);
+}
+
+async function handleWorldCupCommand(_args: string, ctx: any): Promise<void> {
+  let config = currentConfig ?? readConfig();
+  config = await ensureWorldCupCountry(ctx, config) ?? config;
+  if (!followedWorldCupTeam(config)) return;
+  currentConfig = config;
+  await showWorldCupMenu(ctx, config);
+}
+
 async function handleSoccerCommand(args: string, ctx: any): Promise<void> {
   const theme = ctx.ui.theme;
   const trimmed = String(args || "").trim();
@@ -1090,9 +1396,14 @@ function getSoccerCompletions(prefix: string): Array<{ value: string; label: str
 
 export const __testing = {
   editDistance,
+  findNationalTeams,
+  followedWorldCupTeam,
   fuzzyScore,
+  guessWorldCupCountryFromConfiguredEnv,
+  guessWorldCupCountryFromLocaleTimezone,
   normalizeName,
   scoreTeamMatch,
+  setFollowedWorldCupTeam,
   teamFromConfigArg,
 };
 
@@ -1129,6 +1440,16 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
         if (!ctx.hasUI) return;
         const value = String(args ?? "").trim();
         await handleSoccerCommand(value ? `${alias.command} ${value}` : alias.command, ctx);
+      },
+    });
+  }
+
+  for (const alias of WORLD_CUP_COMMAND_ALIASES) {
+    pi.registerCommand(alias.name, {
+      description: `Soccer: ${alias.description}.`,
+      handler: async (args, ctx) => {
+        if (!ctx.hasUI) return;
+        await handleWorldCupCommand(String(args ?? ""), ctx);
       },
     });
   }
