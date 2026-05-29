@@ -11,6 +11,7 @@ The widget prioritizes your favorite club, but can rotate to watchlist teams whe
 - Candidate search before adding teams, reducing typo mistakes
 - Tab completion for subcommands and cached result numbers
 - `/soccer:setup` and `/soccer:pick` guided flows
+- `/soccer:worldcup` and `/soccer:wc` World Cup menu + followed country setup
 - 6-hour sync cache to reduce API requests
 - Discovery fallback from one random league top-3 pool per sync
 - One compact widget at a time
@@ -103,6 +104,7 @@ FOOTBALL_DATA_API_TOKEN=your_api_token
 
 ```bash
 PI_SOCCER_TEAM="Real Madrid"
+PI_SOCCER_COUNTRY="Japan"
 PI_SOCCER_REFRESH_MIN=15
 PI_SOCCER_LEAGUES=PL,PD,SA,BL1,FL1,DED,PPL
 ```
@@ -134,9 +136,32 @@ Default league search scope:
 /soccer:list                  show watchlist
 /soccer:remove 2              remove watchlist item #2
 /soccer Arsenal               shorthand: set favorite if unambiguous
+/soccer:worldcup              open World Cup menu or first-run country setup
+/soccer:wc                    alias for /soccer:worldcup
 ```
 
 The older subcommand form still works for compatibility, such as `/soccer status` and `/soccer search arsenal`.
+World Cup is colon-command only; `/soccer worldcup ...` is not a supported command path.
+
+## World Cup mode
+
+Run `/soccer:worldcup` or `/soccer:wc` to open the World Cup menu:
+
+- Follow my country
+- Today's matches
+- Group table
+- Match detail
+- Top scorers
+- Settings
+
+On first run, the extension picks a followed country in this order:
+
+1. Existing saved World Cup config
+2. `PI_SOCCER_COUNTRY`
+3. Locale/timezone guess
+4. Manual country search/select
+
+Guessed countries always require confirmation before saving. IP geolocation is not used.
 
 ## Widget behavior
 
@@ -162,6 +187,8 @@ The extension stores lightweight local state under `~/.pi/agent/`:
 - `pi-soccer-widget-snapshots.json` - 6-hour cached match/standing snapshots
 
 `pi-soccer-widget-auth.json` contains secret material and is local-only. Do not commit it, paste it into issues, or include it in logs. Use `/soccer:logout` to remove the stored key. If `FOOTBALL_DATA_API_TOKEN` is set, it takes priority over this file, and `/soccer:status` reports only the source, never the key value.
+
+World Cup followed country state is stored in optional `worldCup` fields inside `pi-soccer-widget-config.json` and remains backward-compatible with existing club/watchlist config.
 
 Legacy `soccer-team.json` is migrated automatically when present.
 
