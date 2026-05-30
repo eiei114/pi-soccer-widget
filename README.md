@@ -166,7 +166,7 @@ Refresh cadence for the Champions view:
 Example:
 
 ```text
-醇 Champions Final Night | PSG vs Arsenal | 2026-05-31 01:00 JST
+🏆 Champions Final Night | PSG vs Arsenal | 2026-05-31 01:00 JST
 Pi is keeping one eye on the final. 1h 30m to kickoff
 Focus mode stays on. Football brain leaks in.
 Data: scheduled / not true live | bridge: /soccer:worldcup
@@ -175,15 +175,15 @@ Data: scheduled / not true live | bridge: /soccer:worldcup
 Live-ish API example:
 
 ```text
-醇 Champions Final | PSG 1-0 Arsenal | LIVE
-Goals: Paris Saint-Germain FC: Dembﾃｩlﾃｩ 28'
+🏆 Champions Final | PSG 1-0 Arsenal | LIVE
+Goals: Paris Saint-Germain FC: Dembélé 28'
 Data: football-data.org / not official live | cache 0m ago
 ```
 
 Before kickoff, the API-backed scheduled view stays prediction-free:
 
 ```text
-醇 Champions Final | PSG vs Arsenal | 5/31 01:00
+🏆 Champions Final | PSG vs Arsenal | 5/31 01:00
 Kickoff: 2026-05-31 01:00 JST | 1h 30m to kickoff
 Data: football-data.org / not official live | cache 0m ago
 ```
