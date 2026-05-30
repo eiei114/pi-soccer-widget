@@ -30,7 +30,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { complete, type Message } from "@earendil-works/pi-ai";
 import { homedir } from "node:os";
+import { spawn } from "node:child_process";
 import { join } from "node:path";
 import {
   chmodSync,
@@ -60,9 +62,17 @@ const SNAPSHOT_TTL_MS = 6 * 60 * 60 * 1000;
 const WORLD_CUP_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
 const WORLD_CUP_MATCHDAY_TTL_MS = 10 * 60 * 1000;
 const WORLD_CUP_REFRESH_MS = 10 * 60 * 1000;
+const CHAMPIONS_FINAL_SCHEDULED_TTL_MS = 5 * 60 * 1000;
+const CHAMPIONS_FINAL_LIVE_TTL_MS = 30 * 1000;
+const CHAMPIONS_FINAL_PAUSED_TTL_MS = 60 * 1000;
+const CHAMPIONS_FINAL_FINISHED_TTL_MS = 10 * 60 * 1000;
+const CHAMPIONS_FINAL_BACKOFF_MS = 2 * 60 * 1000;
+const CHAMPIONS_FINAL_FORCE_BEFORE_MS = 6 * 60 * 60 * 1000;
+const CHAMPIONS_FINAL_FORCE_AFTER_MS = 4 * 60 * 60 * 1000;
 const SYNC_LOCK_MS = 5 * 60 * 1000;
 const DISCOVERY_TOP_N = 3;
 const WORLD_CUP_CODE = "WC";
+const CHAMPIONS_LEAGUE_CODE = "CL";
 
 const COMMANDS = [
   ["setup", "guided API key + favorite team setup"],
@@ -100,6 +110,35 @@ const WORLD_CUP_COMMAND_ALIASES = [
   { name: "soccer:worldcup", description: "open World Cup menu and followed country setup" },
   { name: "soccer:wc", description: "alias for /soccer:worldcup" },
 ] as const;
+
+const CHAMPIONS_FINAL_COMMAND_ALIASES = [
+  { name: "soccer:champions", description: "show the Champions League final launch skin" },
+  { name: "soccer:ucl", description: "alias for /soccer:champions" },
+] as const;
+
+const CHAMPIONS_AI_PREDICTION_COMMAND_ALIASES = [
+  { name: "ucl:prediction-ai", description: "show the AI-assisted UCL final prediction skin" },
+] as const;
+
+const CHAMPIONS_FINAL_KICKOFF_UTC = "2026-05-30T16:00:00.000Z";
+const CHAMPIONS_FINAL_KICKOFF_JST = "2026-05-31 01:00 JST";
+const CHAMPIONS_FINAL_DATE_FROM = "2026-05-30";
+const CHAMPIONS_FINAL_DATE_TO = "2026-05-31";
+const DEFAULT_CHAMPIONS_FINAL_PREDICTION = { psg: 2, arsenal: 1 };
+const X_INTENT_URL = "https://twitter.com/intent/tweet";
+const PI_INSTALL_URL = "https://pi.dev";
+const DEFAULT_AI_PROMPT = "Use a balanced prediction style unless I specify another method.";
+const DEFAULT_AI_PROVIDER = "current Pi provider";
+const DEFAULT_AI_MODEL = "current Pi model";
+const AI_ANALYSIS_SYSTEM_PROMPT = `You are preparing a compact football prediction brief for PSG vs Arsenal in the UEFA Champions League final.
+Treat the user's additional prompt as the prediction-method override: it may change weights, scenario lens, risk appetite, ignored factors, output emphasis, or whether to validate the user's pick rather than run a balanced forecast.
+Default method only when the user gives no method: balanced form/injury/stats-set-piece/venue-fatigue/market/90-ET-PK reasoning.
+Do not force the default checklist when the user prompt asks for another style. Do not invent fresh facts you cannot access; say unavailable/fresh data unavailable if needed.
+Return only compact JSON: {"method":"short method used","factors":["short factor","short factor","short factor"],"lean":"short lean"}. No prose.`;
+const AI_PREDICTION_SYSTEM_PROMPT = `You predict the exact score for the UEFA Champions League final: PSG vs Arsenal.
+The user's additional prompt is a binding prediction-method override. Follow it for weighting, scenario framing, and risk appetite unless it conflicts with the required JSON output.
+Use the prior analysis method/factors when supplied. Do not silently revert to balanced analysis if the user asked for a custom lens.
+Return only compact JSON: {"psg":number,"arsenal":number}. Scores must be integers from 0 to 20. No prose.`;
 
 type Notify = (msg: string, level: "info" | "warning" | "error") => void;
 type SetWidget = (id: string, lines: string[] | undefined) => void;
@@ -194,6 +233,13 @@ interface SnapshotCache {
   discoveryTeamIds: number[];
   snapshots: Record<string, TeamSnapshot>;
   worldCup?: WorldCupSnapshot;
+  championsFinal?: ChampionsFinalSnapshot;
+}
+
+interface ChampionsFinalSnapshot {
+  timestamp: number;
+  fetchedAt: number;
+  match: MatchEntry | null;
 }
 
 interface MatchEntry {
@@ -347,6 +393,9 @@ const TIME_ZONE_TO_WORLD_CUP_CODE: Record<string, string> = {
 
 let currentConfig: SoccerConfig | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let currentRefreshIntervalMs: number | null = null;
+let championsFinalModeActive = false;
+let championsFinalBackoffUntil = 0;
 
 /** Clears the active widget refresh interval so it cannot reuse an old Pi extension context. */
 function clearRefreshTimer(): void {
@@ -354,6 +403,7 @@ function clearRefreshTimer(): void {
     clearInterval(refreshTimer);
     refreshTimer = null;
   }
+  currentRefreshIntervalMs = null;
 }
 
 /** Returns true when Pi rejects a captured extension context after session replacement or reload. */
@@ -828,6 +878,48 @@ function worldCupCacheFresh(snapshot: WorldCupSnapshot): boolean {
   return Date.now() - snapshot.timestamp < ttl;
 }
 
+function isChampionsFinalTeam(team: { name?: string; shortName?: string }, expected: "psg" | "arsenal"): boolean {
+  const names = [team.name, team.shortName].filter(Boolean).map((item) => normalizeName(item!));
+  if (expected === "arsenal") return names.some((name) => name.includes("arsenal"));
+  return names.some((name) => name.includes("paris") || name.includes("psg") || name.includes("saint germain"));
+}
+
+function isChampionsFinalMatch(match: MatchEntry): boolean {
+  const homePsg = isChampionsFinalTeam(match.homeTeam, "psg");
+  const awayPsg = isChampionsFinalTeam(match.awayTeam, "psg");
+  const homeArsenal = isChampionsFinalTeam(match.homeTeam, "arsenal");
+  const awayArsenal = isChampionsFinalTeam(match.awayTeam, "arsenal");
+  return (homePsg && awayArsenal) || (awayPsg && homeArsenal);
+}
+
+function championsFinalCacheFresh(snapshot: ChampionsFinalSnapshot): boolean {
+  const match = snapshot.match;
+  const ttl = championsFinalRefreshMs(snapshot);
+  return Date.now() - snapshot.timestamp < ttl;
+}
+
+function championsFinalRefreshMs(snapshot?: ChampionsFinalSnapshot | null, now = Date.now()): number {
+  if (championsFinalBackoffUntil > now) return CHAMPIONS_FINAL_BACKOFF_MS;
+  const match = snapshot?.match;
+  if (match?.status === "PAUSED") return CHAMPIONS_FINAL_PAUSED_TTL_MS;
+  if (match && activeMatch(match)) return CHAMPIONS_FINAL_LIVE_TTL_MS;
+  if (match && finishedMatch(match)) return CHAMPIONS_FINAL_FINISHED_TTL_MS;
+  return CHAMPIONS_FINAL_SCHEDULED_TTL_MS;
+}
+
+function shouldForceChampionsFinalWidget(now = new Date()): boolean {
+  const override = String(process.env.PI_SOCCER_CHAMPIONS_FORCE ?? "").trim().toLowerCase();
+  if (["off", "false", "0"].includes(override)) return false;
+  if (["on", "true", "1"].includes(override)) return true;
+  const kickoff = new Date(CHAMPIONS_FINAL_KICKOFF_UTC).getTime();
+  const current = now.getTime();
+  return current >= kickoff - CHAMPIONS_FINAL_FORCE_BEFORE_MS && current <= kickoff + CHAMPIONS_FINAL_FORCE_AFTER_MS;
+}
+
+function shouldUseChampionsFinalWidget(now = new Date()): boolean {
+  return championsFinalModeActive || shouldForceChampionsFinalWidget(now);
+}
+
 async function fetchWorldCupTeams(token: string): Promise<TeamRecord[]> {
   const data = (await apiFetch(`/competitions/${WORLD_CUP_CODE}/teams`, token)) as {
     teams?: Array<{ id: number; name: string; shortName?: string; tla?: string }>;
@@ -861,6 +953,30 @@ async function fetchWorldCupMatchDetail(matchId: number, token: string): Promise
   } catch {
     return null;
   }
+}
+
+async function fetchChampionsFinalMatch(token: string): Promise<MatchEntry | null> {
+  const data = (await apiFetch(`/competitions/${CHAMPIONS_LEAGUE_CODE}/matches?dateFrom=${CHAMPIONS_FINAL_DATE_FROM}&dateTo=${CHAMPIONS_FINAL_DATE_TO}`, token)) as { matches?: MatchEntry[] };
+  const matches = data.matches ?? [];
+  return matches.find(isChampionsFinalMatch) ?? null;
+}
+
+async function syncChampionsFinalData(token: string, options?: { force?: boolean }): Promise<ChampionsFinalSnapshot> {
+  const cache = readSnapshotCache();
+  if (!options?.force && cache.championsFinal && championsFinalCacheFresh(cache.championsFinal)) return cache.championsFinal;
+  let match: MatchEntry | null;
+  try {
+    match = await fetchChampionsFinalMatch(token);
+    championsFinalBackoffUntil = 0;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("HTTP 429")) {
+      championsFinalBackoffUntil = Date.now() + CHAMPIONS_FINAL_BACKOFF_MS;
+    }
+    throw error;
+  }
+  const snapshot: ChampionsFinalSnapshot = { timestamp: Date.now(), fetchedAt: Date.now(), match };
+  writeSnapshotCache({ ...cache, championsFinal: snapshot });
+  return snapshot;
 }
 
 async function syncWorldCupData(config: SoccerConfig, token: string, options?: { force?: boolean }): Promise<WorldCupSnapshot> {
@@ -931,6 +1047,401 @@ function renderWorldCupSnapshot(snapshot: WorldCupSnapshot, theme: Theme): strin
   }
 
   return lines.slice(0, 5);
+}
+
+function championsFinalCountdownText(now = new Date()): string {
+  const kickoff = new Date(CHAMPIONS_FINAL_KICKOFF_UTC).getTime();
+  const diffMs = kickoff - now.getTime();
+  if (diffMs <= 0) return "kickoff window";
+  const totalMinutes = Math.ceil(diffMs / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes}m to kickoff`;
+  return `${hours}h ${minutes}m to kickoff`;
+}
+
+function renderChampionsFinalLaunchSkin(theme: Theme, now = new Date()): string[] {
+  const title = theme.fg("accent", "🏆 Champions Final Night");
+  return [
+    `${title} | PSG vs Arsenal | ${CHAMPIONS_FINAL_KICKOFF_JST}`,
+    `Pi is keeping one eye on the final. ${theme.fg("dim", championsFinalCountdownText(now))}`,
+    "Focus mode stays on. Football brain leaks in.",
+    theme.fg("dim", "Data: scheduled / not true live | bridge: /soccer:worldcup"),
+  ];
+}
+
+function championsPredictionLabel(prediction: { psg: number; arsenal: number }): string {
+  return `PSG ${prediction.psg}-${prediction.arsenal} Arsenal`;
+}
+
+type ChampionsAiPrediction = {
+  userPsg: number;
+  userArsenal: number;
+  psg: number;
+  arsenal: number;
+  prompt: string;
+  provider: string;
+  model: string;
+  basis: string;
+};
+
+type ChampionsAiAnalysis = {
+  method?: string;
+  factors: string[];
+  lean: string;
+};
+
+function renderChampionsAiPredictionSkin(theme: Theme, prediction: ChampionsAiPrediction, now = new Date()): string[] {
+  const title = theme.fg("accent", "🤖 Champions AI Prediction");
+  return [
+    `${title} | PSG vs Arsenal | ${CHAMPIONS_FINAL_KICKOFF_JST}`,
+    `You: ${championsPredictionLabel({ psg: prediction.userPsg, arsenal: prediction.userArsenal })} | AI: ${championsPredictionLabel(prediction)}`,
+    `Basis: ${prediction.basis}`,
+    theme.fg("dim", `AI: ${prediction.provider} / ${prediction.model} | not betting advice`),
+  ];
+}
+
+function renderChampionsAiThinkingSkin(theme: Theme, userPrediction: { psg: number; arsenal: number }, now = new Date()): string[] {
+  const title = theme.fg("accent", "🤖 Champions AI Prediction");
+  return [
+    `${title} | PSG vs Arsenal | ${CHAMPIONS_FINAL_KICKOFF_JST}`,
+    `You: ${championsPredictionLabel(userPrediction)} | AI thinking...`,
+    `Pi is comparing your call with the prompt. ${theme.fg("dim", championsFinalCountdownText(now))}`,
+    theme.fg("dim", "Source: active Pi model / not betting advice"),
+  ];
+}
+
+function renderChampionsFinalSnapshot(snapshot: ChampionsFinalSnapshot, theme: Theme): string[] {
+  const match = snapshot.match;
+  if (!match) {
+    return [
+      ...renderChampionsFinalLaunchSkin(theme).slice(0, 3),
+      theme.fg("dim", `Data: API checked, match not found / not true live | cache ${ageText(snapshot.fetchedAt)}`),
+    ];
+  }
+
+  const score = scorePair(match);
+  const home = shortTeamName(match.homeTeam);
+  const away = shortTeamName(match.awayTeam);
+  const middle = score.home == null || score.away == null ? "vs" : `${score.home}-${score.away}`;
+  const status = matchStatusText(match);
+  const lines = [
+    `${theme.fg("accent", "🏆 Champions Final")} | ${home} ${middle} ${away} | ${status}`,
+  ];
+  const goals = worldCupGoalsLine(match);
+  if (goals) lines.push(goals);
+  else if (scheduledMatch(match)) lines.push(`Kickoff: ${CHAMPIONS_FINAL_KICKOFF_JST} | ${championsFinalCountdownText()}`);
+  else lines.push("Pi is keeping one eye on the final. Football brain leaks in.");
+  const flags = worldCupFlagsLine(match);
+  if (flags) lines.push(flags);
+  lines.push(theme.fg("dim", `Data: football-data.org / not official live | cache ${ageText(snapshot.fetchedAt)}`));
+  return lines.slice(0, 4);
+}
+
+function championsFinalLaunchText(source: "api" | "fallback"): string {
+  return [
+    source === "api" ? "Champions Final matchday glance is on." : "Champions Final launch skin is on.",
+    "PSG vs Arsenal",
+    `Kickoff: ${CHAMPIONS_FINAL_KICKOFF_JST}`,
+    source === "api" ? "Data posture: football-data.org / cached / not official live." : "Data posture: scheduled / not true live.",
+    "Next act: /soccer:worldcup",
+  ].join("\n");
+}
+
+function championsAiPredictionPostText(prediction: ChampionsAiPrediction): string {
+  return [
+    `My UCL prediction vs AI 🤖🏆`,
+    `Me: ${championsPredictionLabel({ psg: prediction.userPsg, arsenal: prediction.userArsenal })} | AI: ${championsPredictionLabel(prediction)}`,
+    `Basis: ${prediction.basis}`,
+    `AI: ${prediction.provider} / ${prediction.model}`,
+    "Try it:",
+    `1 install ${PI_INSTALL_URL}`,
+    "2 pi install npm:pi-soccer-widget",
+    "3 /ucl:prediction-ai",
+    "No football-data key needed for predictions.",
+    "#UCLfinal #ChampionsLeague #PSGARS #PSG #Arsenal",
+  ].join("\n");
+}
+
+function cleanShareLine(value: unknown, fallback: string, maxLength = 96): string {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return (text || fallback).slice(0, maxLength);
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function resolveAiProviderModel(ctx: any): { provider: string; model: string } {
+  const provider = cleanShareLine(firstString(
+    process.env.PI_SOCCER_AI_PROVIDER,
+    ctx?.model?.provider,
+    ctx?.session?.provider,
+    ctx?.provider,
+    ctx?.modelProvider,
+    process.env.PI_MODEL_PROVIDER,
+    process.env.PI_PROVIDER,
+  ), DEFAULT_AI_PROVIDER, 64);
+  const model = cleanShareLine(firstString(
+    process.env.PI_SOCCER_AI_MODEL,
+    ctx?.model?.name,
+    ctx?.model?.id,
+    ctx?.model?.model,
+    ctx?.session?.model,
+    ctx?.currentModel,
+    process.env.PI_MODEL,
+    process.env.OPENAI_MODEL,
+    process.env.ANTHROPIC_MODEL,
+  ), DEFAULT_AI_MODEL, 64);
+  return { provider, model };
+}
+
+async function generateChampionsAiPick(ctx: any, input: { userPsg: number; userArsenal: number; prompt: string; analysis?: ChampionsAiAnalysis }): Promise<{ psg: number; arsenal: number }> {
+  const fakeResponse = process.env.PI_SOCCER_AI_RESPONSE;
+  if (fakeResponse) {
+    const parsed = parseAiPredictionText(fakeResponse);
+    if (parsed) return parsed;
+    throw new Error("PI_SOCCER_AI_RESPONSE must contain {psg, arsenal} or a score like 2-1.");
+  }
+  if (!ctx.model) throw new Error("No active Pi model selected.");
+  const auth = await ctx.modelRegistry?.getApiKeyAndHeaders?.(ctx.model);
+  if (!auth?.ok || !auth.apiKey) throw new Error(auth?.ok ? `No API key for ${ctx.model.provider}` : auth?.error ?? "No model API key available.");
+
+  const userMessage: Message = {
+    role: "user",
+    content: [{
+      type: "text",
+      text: [
+        "Task: predict the exact score for PSG vs Arsenal in the UEFA Champions League final.",
+        "You must give one PSG score and one Arsenal score.",
+        "Important: the additional user prompt controls the prediction method/style. It can change weights, ignored factors, scenario lens, or risk appetite.",
+        `User prediction: ${championsPredictionLabel({ psg: input.userPsg, arsenal: input.userArsenal })}.`,
+        `Additional user prompt: ${input.prompt}`,
+        input.analysis ? `Prior analysis: ${aiBasisText(input.analysis)}` : "Prior analysis: not provided.",
+        "Return only JSON with numeric keys psg and arsenal, for example {\"psg\":2,\"arsenal\":1}.",
+      ].join("\n"),
+    }],
+    timestamp: Date.now(),
+  };
+  const response = await complete(ctx.model, { systemPrompt: AI_PREDICTION_SYSTEM_PROMPT, messages: [userMessage] }, { apiKey: auth.apiKey, headers: auth.headers, signal: ctx.signal });
+  if (response.stopReason === "aborted") throw new Error("AI prediction cancelled.");
+  const text = response.content
+    .filter((content): content is { type: "text"; text: string } => content.type === "text")
+    .map((content) => content.text)
+    .join("\n");
+  const parsed = parseAiPredictionText(text);
+  if (!parsed) throw new Error("AI did not return a valid PSG-Arsenal score.");
+  return parsed;
+}
+
+async function generateChampionsAiAnalysis(ctx: any, input: { userPsg: number; userArsenal: number; prompt: string }): Promise<ChampionsAiAnalysis> {
+  const fakeResponse = process.env.PI_SOCCER_AI_ANALYSIS_RESPONSE;
+  if (fakeResponse) {
+    const parsed = parseAiAnalysisText(fakeResponse);
+    if (parsed) return parsed;
+    throw new Error("PI_SOCCER_AI_ANALYSIS_RESPONSE must contain analysis factors.");
+  }
+  if (!ctx.model) throw new Error("No active Pi model selected.");
+  const auth = await ctx.modelRegistry?.getApiKeyAndHeaders?.(ctx.model);
+  if (!auth?.ok || !auth.apiKey) throw new Error(auth?.ok ? `No API key for ${ctx.model.provider}` : auth?.error ?? "No model API key available.");
+
+  const userMessage: Message = {
+    role: "user",
+    content: [{
+      type: "text",
+      text: [
+        "Task: build a compact prediction brief for PSG vs Arsenal in the UEFA Champions League final before choosing a score.",
+        "Interpret the user prompt as a configurable prediction style, not merely extra context.",
+        "If the user asks to emphasize/ignore factors, chase a chaos scenario, validate their score, use odds-first logic, or use tactical-only logic, do that.",
+        `User prediction to compare against: ${championsPredictionLabel({ psg: input.userPsg, arsenal: input.userArsenal })}.`,
+        `User prompt: ${input.prompt}`,
+        "If no custom method is specified, use a balanced default. Return only JSON with method, three short factors, and a short lean.",
+      ].join("\n"),
+    }],
+    timestamp: Date.now(),
+  };
+  const response = await complete(ctx.model, { systemPrompt: AI_ANALYSIS_SYSTEM_PROMPT, messages: [userMessage] }, { apiKey: auth.apiKey, headers: auth.headers, signal: ctx.signal });
+  if (response.stopReason === "aborted") throw new Error("AI analysis cancelled.");
+  const text = response.content
+    .filter((content): content is { type: "text"; text: string } => content.type === "text")
+    .map((content) => content.text)
+    .join("\n");
+  return parseAiAnalysisText(text) ?? { method: "custom prompt", factors: ["matchup", "prompt weighting", "game state"], lean: "model read" };
+}
+
+function parsePredictionScore(value: unknown): number | null {
+  const raw = String(value ?? "").trim();
+  if (!/^\d{1,2}$/.test(raw)) return null;
+  const score = Number(raw);
+  return Number.isSafeInteger(score) && score >= 0 && score <= 20 ? score : null;
+}
+
+function parseAiPredictionText(value: unknown): { psg: number; arsenal: number } | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    const psg = parsePredictionScore(parsed?.psg);
+    const arsenal = parsePredictionScore(parsed?.arsenal);
+    if (psg !== null && arsenal !== null) return { psg, arsenal };
+  } catch {
+    // Fall through to score-pattern parsing.
+  }
+  const jsonObject = text.match(/\{[\s\S]*\}/)?.[0];
+  if (jsonObject) {
+    try {
+      const parsed = JSON.parse(jsonObject);
+      const psg = parsePredictionScore(parsed?.psg);
+      const arsenal = parsePredictionScore(parsed?.arsenal);
+      if (psg !== null && arsenal !== null) return { psg, arsenal };
+    } catch {
+      // Fall through to loose key parsing.
+    }
+  }
+  const keyed = text.match(/psg["'\s:=-]+(\d{1,2})[\s\S]*?arsenal["'\s:=-]+(\d{1,2})/i);
+  if (keyed) {
+    const psg = parsePredictionScore(keyed[1]);
+    const arsenal = parsePredictionScore(keyed[2]);
+    if (psg !== null && arsenal !== null) return { psg, arsenal };
+  }
+  const match = text.match(/PSG\D{0,12}(\d{1,2})\D{1,12}(\d{1,2})\D{0,12}Arsenal/i)
+    ?? text.match(/(\d{1,2})\s*[-:–]\s*(\d{1,2})/);
+  if (!match) return null;
+  const psg = parsePredictionScore(match[1]);
+  const arsenal = parsePredictionScore(match[2]);
+  return psg !== null && arsenal !== null ? { psg, arsenal } : null;
+}
+
+function parseAiAnalysisText(value: unknown): ChampionsAiAnalysis | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const candidates = [text, text.match(/\{[\s\S]*\}/)?.[0]].filter((item): item is string => !!item);
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const factors = Array.isArray(parsed?.factors)
+        ? parsed.factors.map((factor: unknown) => cleanShareLine(factor, "", 36)).filter(Boolean).slice(0, 3)
+        : [];
+      const method = cleanShareLine(parsed?.method, "", 48);
+      const lean = cleanShareLine(parsed?.lean, "balanced final", 48);
+      if (factors.length) return { ...(method ? { method } : {}), factors, lean };
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  const lines = text
+    .split(/\r?\n|[;・•]/)
+    .map((line) => cleanShareLine(line.replace(/^[-*\d.)\s]+/, ""), "", 36))
+    .filter(Boolean)
+    .slice(0, 3);
+  return lines.length ? { factors: lines, lean: "model read" } : null;
+}
+
+function aiBasisText(analysis: ChampionsAiAnalysis): string {
+  return cleanShareLine([analysis.method, ...analysis.factors, analysis.lean].filter(Boolean).join(" / "), "model read", 160);
+}
+
+function openExternalUrl(url: string): void {
+  if (process.env.PI_SOCCER_DISABLE_OPEN === "1") return;
+  const platform = process.platform;
+  const command = platform === "win32" ? "cmd" : platform === "darwin" ? "open" : "xdg-open";
+  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
+  const child = spawn(command, args, { detached: true, stdio: "ignore", shell: false });
+  child.unref?.();
+}
+
+function openXAiPredictionPost(prediction: ChampionsAiPrediction): void {
+  const url = `${X_INTENT_URL}?text=${encodeURIComponent(championsAiPredictionPostText(prediction))}`;
+  openExternalUrl(url);
+}
+
+async function handleChampionsFinalCommand(ctx: any): Promise<void> {
+  championsFinalModeActive = true;
+  const { token } = resolveApiToken();
+  if (!token) {
+    ctx.ui.setWidget(WIDGET_ID, renderChampionsFinalLaunchSkin(ctx.ui.theme));
+    showText(ctx, `${championsFinalLaunchText("fallback")}\nAPI key missing. Run /soccer:login for live-ish cached match data.`, "warning");
+    resetRefreshTimer(ctx);
+    return;
+  }
+
+  ctx.ui.setWidget(WIDGET_ID, renderChampionsFinalLaunchSkin(ctx.ui.theme));
+  try {
+    const snapshot = await syncChampionsFinalData(token, { force: true });
+    ctx.ui.setWidget(WIDGET_ID, renderChampionsFinalSnapshot(snapshot, ctx.ui.theme));
+    showText(ctx, championsFinalLaunchText("api"));
+    resetRefreshTimer(ctx);
+  } catch (err) {
+    const stale = readSnapshotCache().championsFinal;
+    if (stale) ctx.ui.setWidget(WIDGET_ID, renderChampionsFinalSnapshot(stale, ctx.ui.theme));
+    const message = err instanceof Error ? err.message : String(err);
+    showText(ctx, `${championsFinalLaunchText("fallback")}\nAPI sync failed: ${message}`, "warning");
+    resetRefreshTimer(ctx);
+  }
+}
+
+async function askPredictionScore(ctx: any, team: string, fallback: number): Promise<number | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const value = await ctx.ui.input(`${team} は何点�E�`, String(fallback));
+    const score = parsePredictionScore(value ?? fallback);
+    if (score !== null) return score;
+    showText(ctx, `${team} score must be a number from 0 to 20.`, "warning");
+  }
+  return null;
+}
+
+async function handleChampionsAiPredictionCommand(ctx: any): Promise<void> {
+  const userPsg = await askPredictionScore(ctx, "Your PSG", DEFAULT_CHAMPIONS_FINAL_PREDICTION.psg);
+  if (userPsg === null) return;
+  const userArsenal = await askPredictionScore(ctx, "Your Arsenal", DEFAULT_CHAMPIONS_FINAL_PREDICTION.arsenal);
+  if (userArsenal === null) return;
+  const prompt = cleanShareLine(await ctx.ui.input("Prediction method prompt:", DEFAULT_AI_PROMPT), DEFAULT_AI_PROMPT, 240);
+  const { provider, model } = resolveAiProviderModel(ctx);
+  ctx.ui.setWidget(WIDGET_ID, renderChampionsAiThinkingSkin(ctx.ui.theme, { psg: userPsg, arsenal: userArsenal }));
+  showText(ctx, "AI is applying your prediction method before choosing a score...");
+  const analysis = await generateChampionsAiAnalysis(ctx, { userPsg, userArsenal, prompt });
+  ctx.ui.setWidget(WIDGET_ID, [
+    `${ctx.ui.theme.fg("accent", "🤖 Champions AI Prediction")} | PSG vs Arsenal | ${CHAMPIONS_FINAL_KICKOFF_JST}`,
+    `You: ${championsPredictionLabel({ psg: userPsg, arsenal: userArsenal })} | AI weighing score...`,
+    `Basis: ${aiBasisText(analysis)}`,
+    ctx.ui.theme.fg("dim", `AI: ${provider} / ${model} | not betting advice`),
+  ]);
+  const aiPick = await generateChampionsAiPick(ctx, { userPsg, userArsenal, prompt, analysis });
+  const prediction = { userPsg, userArsenal, psg: aiPick.psg, arsenal: aiPick.arsenal, prompt, provider, model, basis: aiBasisText(analysis) };
+
+  ctx.ui.setWidget(WIDGET_ID, renderChampionsAiPredictionSkin(ctx.ui.theme, prediction));
+  showText(ctx, [
+    "Champions AI prediction skin is on.",
+    `You: ${championsPredictionLabel({ psg: userPsg, arsenal: userArsenal })} | AI: ${championsPredictionLabel(prediction)}`,
+    `Prompt: ${prompt}`,
+    `AI: ${provider} / ${model}`,
+    "Source posture: active Pi model / not betting advice.",
+    "Opening X compose. Screenshot upload is manual.",
+  ].join("\n"));
+  openXAiPredictionPost(prediction);
+}
+
+async function refreshChampionsFinalWidget(setWidget: SetWidget, theme: Theme, options?: { forceSync?: boolean }): Promise<void> {
+  const { token } = resolveApiToken();
+  if (!token) {
+    setWidget(WIDGET_ID, renderChampionsFinalLaunchSkin(theme));
+    return;
+  }
+
+  try {
+    const snapshot = await syncChampionsFinalData(token, { force: options?.forceSync });
+    setWidget(WIDGET_ID, renderChampionsFinalSnapshot(snapshot, theme));
+  } catch {
+    const stale = readSnapshotCache().championsFinal;
+    if (stale) {
+      setWidget(WIDGET_ID, renderChampionsFinalSnapshot(stale, theme));
+      return;
+    }
+    setWidget(WIDGET_ID, renderChampionsFinalLaunchSkin(theme));
+  }
 }
 
 async function refreshWorldCupWidget(setWidget: SetWidget, theme: Theme, config: SoccerConfig, options?: { forceSync?: boolean }): Promise<void> {
@@ -1399,6 +1910,11 @@ async function refreshWidget(setWidget: SetWidget, theme: Theme, options?: { for
   const config = currentConfig ?? readConfig();
   currentConfig = config;
 
+  if (shouldUseChampionsFinalWidget()) {
+    await refreshChampionsFinalWidget(setWidget, theme, options);
+    return;
+  }
+
   if (shouldUseWorldCupWidget(config)) {
     await refreshWorldCupWidget(setWidget, theme, config, options);
     return;
@@ -1817,11 +2333,18 @@ function getSoccerCompletions(prefix: string): Array<{ value: string; label: str
 /** Starts a refresh interval bound to the current session and guards stale-context timer failures. */
 function resetRefreshTimer(ctx: any): void {
   clearRefreshTimer();
-  const intervalMs = shouldUseWorldCupWidget(currentConfig ?? readConfig()) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
+  const intervalMs = shouldUseChampionsFinalWidget()
+    ? championsFinalRefreshMs(readSnapshotCache().championsFinal)
+    : shouldUseWorldCupWidget(currentConfig ?? readConfig()) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
+  currentRefreshIntervalMs = intervalMs;
   refreshTimer = setInterval(() => {
     void (async () => {
       const ui = ctx.ui;
       await refreshWidget((id, lines) => ui.setWidget(id, lines), ui.theme);
+      const nextIntervalMs = shouldUseChampionsFinalWidget()
+        ? championsFinalRefreshMs(readSnapshotCache().championsFinal)
+        : shouldUseWorldCupWidget(currentConfig ?? readConfig()) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
+      if (nextIntervalMs !== currentRefreshIntervalMs) resetRefreshTimer(ctx);
     })().catch((error) => {
       if (isStaleContextError(error)) {
         clearRefreshTimer();
@@ -1847,6 +2370,17 @@ export const __testing = {
   fuzzyScore,
   guessWorldCupCountryFromConfiguredEnv,
   guessWorldCupCountryFromLocaleTimezone,
+  championsFinalCountdownText,
+  championsFinalRefreshMs,
+  renderChampionsFinalSnapshot,
+  renderChampionsFinalLaunchSkin,
+  renderChampionsAiPredictionSkin,
+  championsAiPredictionPostText,
+  parseAiPredictionText,
+  parsePredictionScore,
+  cleanShareLine,
+  shouldForceChampionsFinalWidget,
+  shouldUseChampionsFinalWidget,
   renderWorldCupSnapshot,
   normalizeName,
   scoreTeamMatch,
@@ -1895,6 +2429,26 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
       handler: async (args, ctx) => {
         if (!ctx.hasUI) return;
         await handleWorldCupCommand(String(args ?? ""), ctx);
+      },
+    });
+  }
+
+  for (const alias of CHAMPIONS_FINAL_COMMAND_ALIASES) {
+    pi.registerCommand(alias.name, {
+      description: `Soccer: ${alias.description}.`,
+      handler: async (_args, ctx) => {
+        if (!ctx.hasUI) return;
+        await handleChampionsFinalCommand(ctx);
+      },
+    });
+  }
+
+  for (const alias of CHAMPIONS_AI_PREDICTION_COMMAND_ALIASES) {
+    pi.registerCommand(alias.name, {
+      description: `Soccer: ${alias.description}.`,
+      handler: async (_args, ctx) => {
+        if (!ctx.hasUI) return;
+        await handleChampionsAiPredictionCommand(ctx);
       },
     });
   }
