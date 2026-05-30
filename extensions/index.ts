@@ -348,6 +348,7 @@ const TIME_ZONE_TO_WORLD_CUP_CODE: Record<string, string> = {
 let currentConfig: SoccerConfig | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
+/** Clears the active widget refresh interval so it cannot reuse an old Pi extension context. */
 function clearRefreshTimer(): void {
   if (refreshTimer) {
     clearInterval(refreshTimer);
@@ -355,6 +356,7 @@ function clearRefreshTimer(): void {
   }
 }
 
+/** Returns true when Pi rejects a captured extension context after session replacement or reload. */
 function isStaleContextError(error: unknown): boolean {
   return error instanceof Error && error.message.includes("This extension ctx is stale");
 }
@@ -1812,6 +1814,7 @@ function getSoccerCompletions(prefix: string): Array<{ value: string; label: str
   return null;
 }
 
+/** Starts a refresh interval bound to the current session and guards stale-context timer failures. */
 function resetRefreshTimer(ctx: any): void {
   clearRefreshTimer();
   const intervalMs = shouldUseWorldCupWidget(currentConfig ?? readConfig()) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
