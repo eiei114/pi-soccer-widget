@@ -1385,7 +1385,7 @@ async function handleChampionsFinalCommand(ctx: any): Promise<void> {
 
 async function askPredictionScore(ctx: any, team: string, fallback: number): Promise<number | null> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const value = await ctx.ui.input(`${team} は何点�E�`, String(fallback));
+    const value = await ctx.ui.input(`${team} score (0-20):`, String(fallback));
     const score = parsePredictionScore(value ?? fallback);
     if (score !== null) return score;
     showText(ctx, `${team} score must be a number from 0 to 20.`, "warning");
