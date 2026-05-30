@@ -348,6 +348,17 @@ const TIME_ZONE_TO_WORLD_CUP_CODE: Record<string, string> = {
 let currentConfig: SoccerConfig | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
+function clearRefreshTimer(): void {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+function isStaleContextError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("This extension ctx is stale");
+}
+
 function ensureAgentDir(): void {
   try {
     mkdirSync(AGENT_DIR, { recursive: true });
@@ -1802,13 +1813,24 @@ function getSoccerCompletions(prefix: string): Array<{ value: string; label: str
 }
 
 function resetRefreshTimer(ctx: any): void {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
-  }
+  clearRefreshTimer();
   const intervalMs = shouldUseWorldCupWidget(currentConfig ?? readConfig()) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
-  refreshTimer = setInterval(async () => {
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme);
+  refreshTimer = setInterval(() => {
+    void (async () => {
+      const ui = ctx.ui;
+      await refreshWidget((id, lines) => ui.setWidget(id, lines), ui.theme);
+    })().catch((error) => {
+      if (isStaleContextError(error)) {
+        clearRefreshTimer();
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      try {
+        ctx.ui.notify(`Soccer widget refresh failed: ${message}`, "warning");
+      } catch {
+        // Timer callbacks must never crash Pi if the UI is unavailable.
+      }
+    });
   }, intervalMs);
   refreshTimer.unref?.();
 }
@@ -1838,6 +1860,10 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
     await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme);
 
     resetRefreshTimer(ctx);
+  });
+
+  pi.on("session_shutdown", () => {
+    clearRefreshTimer();
   });
 
   pi.registerCommand("soccer", {

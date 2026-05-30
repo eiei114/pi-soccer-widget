@@ -223,3 +223,71 @@ test("one team match fetch failure does not fail the whole sync", async () => {
   assert.equal(cache.snapshots["2"].lastResult?.wdl, "W");
   assert.equal(cache.snapshots["2"].nextMatch?.opponentShort, "Next");
 });
+
+test("session shutdown clears the refresh timer before the extension ctx goes stale", async () => {
+  const originalSetInterval = globalThis.setInterval;
+  const originalClearInterval = globalThis.clearInterval;
+  const timer = { unref() {} };
+  const cleared = [];
+
+  globalThis.setInterval = () => timer;
+  globalThis.clearInterval = (handle) => {
+    cleared.push(handle);
+  };
+
+  try {
+    await startSession();
+
+    assert.equal(typeof registered.events.session_shutdown, "function");
+    await registered.events.session_shutdown({ type: "session_shutdown", reason: "reload" }, {});
+
+    assert.deepEqual(cleared, [timer]);
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+    globalThis.clearInterval = originalClearInterval;
+  }
+});
+
+test("refresh timer self-clears if it fires after the extension ctx goes stale", async () => {
+  const originalSetInterval = globalThis.setInterval;
+  const originalClearInterval = globalThis.clearInterval;
+  const timer = { unref() {} };
+  const cleared = [];
+  let tick;
+  let stale = false;
+
+  globalThis.setInterval = (fn) => {
+    tick = fn;
+    return timer;
+  };
+  globalThis.clearInterval = (handle) => {
+    cleared.push(handle);
+  };
+
+  const ctx = {
+    hasUI: true,
+    get ui() {
+      if (stale) {
+        throw new Error("This extension ctx is stale after session replacement or reload.");
+      }
+      return {
+        theme,
+        setWidget() {},
+        notify() {},
+      };
+    },
+  };
+
+  try {
+    await registered.events.session_start({ type: "session_start", reason: "startup" }, ctx);
+
+    stale = true;
+    tick();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(cleared, [timer]);
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+    globalThis.clearInterval = originalClearInterval;
+  }
+});
