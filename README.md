@@ -11,6 +11,8 @@ The widget prioritizes your favorite club, but can rotate to watchlist teams whe
 - Candidate search before adding teams, reducing typo mistakes
 - Tab completion for subcommands and cached result numbers
 - `/soccer:setup` and `/soccer:pick` guided flows
+- `/soccer:champions` and `/soccer:ucl` Champions League final launch skin
+- `/ucl:prediction-ai` post-ready user-vs-AI prediction skin
 - `/soccer:worldcup` and `/soccer:wc` World Cup menu + followed country setup
 - 6-hour sync cache to reduce API requests
 - Discovery fallback from one random league top-3 pool per sync
@@ -23,7 +25,7 @@ The widget prioritizes your favorite club, but can rotate to watchlist teams whe
 
 - [Pi Coding Agent](https://pi.dev/) installed
 - Node.js >= 20
-- A free API token from [football-data.org](https://www.football-data.org/client/register)
+- A free API token from [football-data.org](https://www.football-data.org/client/register) for live-ish score/status updates. Prediction-only commands do not require an API key.
 
 If you don't have Pi yet, install the CLI first:
 
@@ -136,12 +138,80 @@ Default league search scope:
 /soccer:list                  show watchlist
 /soccer:remove 2              remove watchlist item #2
 /soccer Arsenal               shorthand: set favorite if unambiguous
+/soccer:champions             show Champions League final launch skin
+/soccer:ucl                   alias for /soccer:champions
 /soccer:worldcup              open World Cup menu or first-run country setup
 /soccer:wc                    alias for /soccer:worldcup
 ```
 
 The older subcommand form still works for compatibility, such as `/soccer status` and `/soccer search arsenal`.
 World Cup is colon-command only; `/soccer worldcup ...` is not a supported command path.
+
+## Champions Final launch skin
+
+Run `/soccer:champions` or `/soccer:ucl` to show a one-screen Champions League final hero state for PSG vs Arsenal.
+
+When a Football-data API key is configured, this command checks the `CL` competition matches for the final date and renders the score/status/goals from football-data.org. The display is still labelled as cached / not official live; if the API key is missing or the match cannot be found, it falls back to the scheduled launch skin.
+
+During the final window (6 hours before kickoff through 4 hours after kickoff), the widget forces this Champions view over the normal club/World Cup widget so the event is visible without extra setup. You can disable that seasonal override with `PI_SOCCER_CHAMPIONS_FORCE=off`.
+
+Refresh cadence for the Champions view:
+
+- Scheduled/pre-match: ~5 minutes
+- Live/in-play: ~30 seconds
+- Half-time/paused: ~60 seconds
+- Finished: ~10 minutes
+- 429/rate-limit backoff: ~2 minutes
+
+Example:
+
+```text
+🏆 Champions Final Night | PSG vs Arsenal | 2026-05-31 01:00 JST
+Pi is keeping one eye on the final. 1h 30m to kickoff
+Focus mode stays on. Football brain leaks in.
+Data: scheduled / not true live | bridge: /soccer:worldcup
+```
+
+Live-ish API example:
+
+```text
+🏆 Champions Final | PSG 1-0 Arsenal | LIVE
+Goals: Paris Saint-Germain FC: Dembélé 28'
+Data: football-data.org / not official live | cache 0m ago
+```
+
+Before kickoff, the API-backed scheduled view stays prediction-free:
+
+```text
+🏆 Champions Final | PSG vs Arsenal | 5/31 01:00
+Kickoff: 2026-05-31 01:00 JST | 1h 30m to kickoff
+Data: football-data.org / not official live | cache 0m ago
+```
+
+For a prediction screenshot, run `/ucl:prediction-ai`. It asks for:
+
+- Your PSG and Arsenal prediction
+- A prediction method prompt
+- AI-generated PSG and Arsenal prediction
+
+The method prompt is not just extra context: it can change the forecast style, weights, ignored factors, scenario lens, and risk appetite. If no method is specified, the AI uses a balanced default. It auto-labels provider/model from Pi/env when available, then renders an AI prediction skin and opens X compose with the method-derived basis plus provider/model metadata:
+
+```text
+My UCL prediction vs AI
+Me: PSG 3-2 Arsenal | AI: PSG 2-1 Arsenal
+Basis: chaos-scenario lens / pressing edge / set pieces / final volatility / narrow PSG
+AI: OpenAI / gpt-5.1-codex
+Try it:
+1 install https://pi.dev
+2 pi install npm:pi-soccer-widget
+3 /ucl:prediction-ai
+No football-data key needed for predictions.
+#UCLfinal #ChampionsLeague #PSGARS #PSG #Arsenal
+```
+
+The prediction flow does not require a Football-data API key. It uses the active Pi model, so that model must be available in Pi. Football-data API setup is only needed for `/soccer:champions` live-ish match score/status updates.
+
+The intent is to use the Champions League final as a fast launch moment, then carry the same glanceable event pattern into World Cup mode.
 
 ## World Cup mode
 

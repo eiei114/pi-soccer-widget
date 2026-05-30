@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-05-30
+
+- Added `/soccer:champions` and `/soccer:ucl` for a Champions League final matchday widget with football-data.org `CL` data when configured and a screenshotable scheduled fallback.
+- Added forced Champions final display and adaptive refresh cadence for scheduled, live, paused, finished, and rate-limited match states.
+- Added `/ucl:prediction-ai` for a post-ready user-vs-AI prediction flow: enter your score, provide a method prompt, let the active Pi model analyze matchup factors and choose a score, then open X compose with the comparison, basis, provider, and model metadata.
+
 ## 0.3.1 - 2026-05-30
 
 - Fixed automatic widget refresh timers to stop on Pi session shutdown/reload, preventing stale extension context crashes after session replacement.

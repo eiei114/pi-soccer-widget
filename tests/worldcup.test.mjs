@@ -19,6 +19,12 @@ async function withExtension(fn) {
     USERPROFILE: process.env.USERPROFILE,
     FOOTBALL_DATA_API_TOKEN: process.env.FOOTBALL_DATA_API_TOKEN,
     PI_SOCCER_COUNTRY: process.env.PI_SOCCER_COUNTRY,
+    PI_SOCCER_CHAMPIONS_FORCE: process.env.PI_SOCCER_CHAMPIONS_FORCE,
+    PI_SOCCER_DISABLE_OPEN: process.env.PI_SOCCER_DISABLE_OPEN,
+    PI_SOCCER_AI_PROVIDER: process.env.PI_SOCCER_AI_PROVIDER,
+    PI_SOCCER_AI_MODEL: process.env.PI_SOCCER_AI_MODEL,
+    PI_SOCCER_AI_ANALYSIS_RESPONSE: process.env.PI_SOCCER_AI_ANALYSIS_RESPONSE,
+    PI_SOCCER_AI_RESPONSE: process.env.PI_SOCCER_AI_RESPONSE,
     LANG: process.env.LANG,
     LC_ALL: process.env.LC_ALL,
     LC_MESSAGES: process.env.LC_MESSAGES,
@@ -29,6 +35,12 @@ async function withExtension(fn) {
   process.env.USERPROFILE = tmpHome;
   delete process.env.FOOTBALL_DATA_API_TOKEN;
   delete process.env.PI_SOCCER_COUNTRY;
+  process.env.PI_SOCCER_CHAMPIONS_FORCE = "off";
+  process.env.PI_SOCCER_DISABLE_OPEN = "1";
+  delete process.env.PI_SOCCER_AI_PROVIDER;
+  delete process.env.PI_SOCCER_AI_MODEL;
+  delete process.env.PI_SOCCER_AI_ANALYSIS_RESPONSE;
+  delete process.env.PI_SOCCER_AI_RESPONSE;
   process.env.LANG = "C";
   process.env.LC_ALL = "C";
   delete process.env.LC_MESSAGES;
@@ -104,6 +116,225 @@ test("/soccer:worldcup and /soccer:wc are registered without space-chained comma
     assert.ok(commands.has("soccer:wc"));
     assert.equal(commands.has("soccer worldcup"), false);
     assert.equal(commands.has("soccer wc"), false);
+  });
+});
+
+test("/soccer:champions and /soccer:ucl render the Champions Final launch skin without API setup", async () => {
+  await withExtension(async ({ commands }) => {
+    assert.ok(commands.has("soccer:champions"));
+    assert.ok(commands.has("soccer:ucl"));
+    assert.equal(commands.has("soccer champions"), false);
+
+    const widgets = [];
+    const notifications = [];
+    const ctx = {
+      hasUI: true,
+      ui: {
+        theme: { fg: (_color, text) => text },
+        setWidget: (id, lines) => widgets.push({ id, lines }),
+        notify: (text, level = "info") => notifications.push({ text, level }),
+      },
+    };
+
+    await commands.get("soccer:champions").handler("", ctx);
+
+    const text = widgets.at(-1).lines.join("\n");
+    assert.match(text, /Champions Final Night/);
+    assert.match(text, /PSG vs Arsenal/);
+    assert.match(text, /2026-05-31 01:00 JST/);
+    assert.match(text, /Focus mode stays on/);
+    assert.doesNotMatch(text, /Prediction/);
+    assert.match(text, /not true live/);
+    assert.match(text, /\/soccer:worldcup/);
+    assert.doesNotMatch(notifications.at(-1).text, /Prediction/);
+    assert.match(notifications.at(-1).text, /Data posture: scheduled \/ not true live/);
+  });
+});
+
+test("/ucl:prediction-ai renders AI provider/model metadata and AI post text", async () => {
+  await withExtension(async ({ commands, testing }) => {
+    assert.ok(commands.has("ucl:prediction-ai"));
+    assert.equal(commands.has("ucl:prediction"), false);
+    assert.equal(commands.has("soccer:predict"), false);
+    assert.equal(commands.has("soccer:prediction"), false);
+
+    const widgets = [];
+    const notifications = [];
+    process.env.PI_SOCCER_AI_PROVIDER = "OpenAI";
+    process.env.PI_SOCCER_AI_MODEL = "gpt-5.1-codex";
+    process.env.PI_SOCCER_AI_ANALYSIS_RESPONSE = '{"method":"custom scouting notes","factors":["pressing edge","set pieces","final volatility"],"lean":"narrow PSG"}';
+    process.env.PI_SOCCER_AI_RESPONSE = '{"psg":2,"arsenal":1}';
+    const inputs = ["3", "2", "Use my scouting notes"];
+    const ctx = {
+      hasUI: true,
+      ui: {
+        theme: { fg: (_color, text) => text },
+        setWidget: (id, lines) => widgets.push({ id, lines }),
+        notify: (text, level = "info") => notifications.push({ text, level }),
+        input: async () => inputs.shift(),
+      },
+    };
+
+    await commands.get("ucl:prediction-ai").handler("", ctx);
+
+    const text = widgets.map((widget) => widget.lines.join("\n")).join("\n---\n");
+    assert.match(text, /Champions AI Prediction/);
+    assert.match(text, /You: PSG 3-2 Arsenal \| AI: PSG 2-1 Arsenal/);
+    assert.match(text, /AI: OpenAI \/ gpt-5\.1-codex/);
+    assert.match(text, /Basis: custom scouting notes \/ pressing edge \/ set pieces \/ final volatility \/ narrow PSG/);
+    assert.match(notifications.at(-1).text, /Source posture: active Pi model/);
+
+    const post = testing.championsAiPredictionPostText({
+      userPsg: 3,
+      userArsenal: 2,
+      psg: 2,
+      arsenal: 1,
+      prompt: "Use my scouting notes",
+      provider: "OpenAI",
+      model: "gpt-5.1-codex",
+      basis: "custom scouting notes / pressing edge / set pieces / final volatility / narrow PSG",
+    });
+    assert.match(post, /My UCL prediction vs AI/);
+    assert.match(post, /Me: PSG 3-2 Arsenal \| AI: PSG 2-1 Arsenal/);
+    assert.match(post, /Basis: custom scouting notes \/ pressing edge \/ set pieces \/ final volatility \/ narrow PSG/);
+    assert.match(post, /AI: OpenAI \/ gpt-5\.1-codex/);
+    assert.match(post, /1 install https:\/\/pi\.dev/);
+    assert.match(post, /2 pi install npm:pi-soccer-widget/);
+    assert.match(post, /3 \/ucl:prediction-ai/);
+    assert.match(post, /No football-data key needed/);
+  });
+});
+
+test("AI prediction parsing accepts common model output wrappers", async () => {
+  await withExtension(async ({ testing }) => {
+    assert.deepEqual(testing.parseAiPredictionText('```json\n{"psg":2,"arsenal":1}\n```'), { psg: 2, arsenal: 1 });
+    assert.deepEqual(testing.parseAiPredictionText('psg: 1\narsenal: 2'), { psg: 1, arsenal: 2 });
+    assert.deepEqual(testing.parseAiPredictionText('PSG 3-2 Arsenal'), { psg: 3, arsenal: 2 });
+  });
+});
+
+test("/soccer:champions uses football-data CL match data when an API key is configured", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    await withExtension(async ({ commands }) => {
+      process.env.FOOTBALL_DATA_API_TOKEN = "test-token";
+      const requested = [];
+      globalThis.fetch = async (url) => {
+        requested.push(String(url));
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              matches: [{
+                id: 2047742,
+                utcDate: "2026-05-30T16:00:00Z",
+                status: "IN_PLAY",
+                homeTeam: { id: 524, name: "Paris Saint-Germain FC", shortName: "PSG" },
+                awayTeam: { id: 57, name: "Arsenal FC", shortName: "Arsenal" },
+                score: { winner: null, fullTime: { home: 1, away: 0 } },
+                goals: [{ minute: 28, team: { id: 524, name: "Paris Saint-Germain FC" }, scorer: { name: "Dembélé" } }],
+              }],
+            };
+          },
+        };
+      };
+
+      const widgets = [];
+      const notifications = [];
+      const ctx = {
+        hasUI: true,
+        ui: {
+          theme: { fg: (_color, text) => text },
+          setWidget: (id, lines) => widgets.push({ id, lines }),
+          notify: (text, level = "info") => notifications.push({ text, level }),
+        },
+      };
+
+      await commands.get("soccer:champions").handler("", ctx);
+
+      assert.match(requested[0], /\/competitions\/CL\/matches\?dateFrom=2026-05-30&dateTo=2026-05-31/);
+      const text = widgets.at(-1).lines.join("\n");
+      assert.match(text, /Champions Final/);
+      assert.match(text, /PSG 1-0 Arsenal/);
+      assert.match(text, /LIVE/);
+      assert.match(text, /Goals: Paris Saint-Germain FC: Dembélé 28'/);
+      assert.match(text, /football-data\.org \/ not official live/);
+      assert.match(notifications.at(-1).text, /cached \/ not official live/);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("/soccer:champions keeps scheduled API skin prediction-free", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    await withExtension(async ({ commands }) => {
+      process.env.FOOTBALL_DATA_API_TOKEN = "test-token";
+      globalThis.fetch = async () => ({
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            matches: [{
+              id: 2047742,
+              utcDate: "2026-05-30T16:00:00Z",
+              status: "TIMED",
+              homeTeam: { id: 524, name: "Paris Saint-Germain FC", shortName: "PSG" },
+              awayTeam: { id: 57, name: "Arsenal FC", shortName: "Arsenal" },
+              score: { winner: null, fullTime: { home: null, away: null } },
+            }],
+          };
+        },
+      });
+
+      const widgets = [];
+      const ctx = {
+        hasUI: true,
+        ui: {
+          theme: { fg: (_color, text) => text },
+          setWidget: (id, lines) => widgets.push({ id, lines }),
+          notify() {},
+        },
+      };
+
+      await commands.get("soccer:champions").handler("", ctx);
+
+      const text = widgets.at(-1).lines.join("\n");
+      assert.doesNotMatch(text, /Prediction/);
+      assert.match(text, /Kickoff: 2026-05-31 01:00 JST/);
+      assert.match(text, /football-data\.org \/ not official live/);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Champions Final launch skin countdown is deterministic", async () => {
+  await withExtension(async ({ testing }) => {
+    const beforeKickoff = new Date("2026-05-30T14:30:00.000Z");
+    const afterKickoff = new Date("2026-05-30T16:05:00.000Z");
+
+    assert.equal(testing.championsFinalCountdownText(beforeKickoff), "1h 30m to kickoff");
+    assert.equal(testing.championsFinalCountdownText(afterKickoff), "kickoff window");
+  });
+});
+
+test("Champions Final forced window and refresh cadence are bounded", async () => {
+  await withExtension(async ({ testing }) => {
+    process.env.PI_SOCCER_CHAMPIONS_FORCE = "";
+    assert.equal(testing.shouldForceChampionsFinalWidget(new Date("2026-05-30T10:00:00.000Z")), true);
+    assert.equal(testing.shouldForceChampionsFinalWidget(new Date("2026-05-30T09:59:59.000Z")), false);
+    assert.equal(testing.shouldForceChampionsFinalWidget(new Date("2026-05-30T20:00:00.000Z")), true);
+    assert.equal(testing.shouldForceChampionsFinalWidget(new Date("2026-05-30T20:00:01.000Z")), false);
+
+    const base = { timestamp: Date.now(), fetchedAt: Date.now() };
+    assert.equal(testing.championsFinalRefreshMs({ ...base, match: null }), 5 * 60 * 1000);
+    assert.equal(testing.championsFinalRefreshMs({ ...base, match: { status: "TIMED" } }), 5 * 60 * 1000);
+    assert.equal(testing.championsFinalRefreshMs({ ...base, match: { status: "IN_PLAY" } }), 30 * 1000);
+    assert.equal(testing.championsFinalRefreshMs({ ...base, match: { status: "PAUSED" } }), 60 * 1000);
+    assert.equal(testing.championsFinalRefreshMs({ ...base, match: { status: "FINISHED" } }), 10 * 60 * 1000);
   });
 });
 
