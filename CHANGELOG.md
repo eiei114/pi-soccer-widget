@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.1 - 2026-05-30
+
+- Fixed automatic widget refresh timers to stop on Pi session shutdown/reload, preventing stale extension context crashes after session replacement.
+
 ## 0.3.0 - 2026-05-29
 
 - Added `/soccer:worldcup` and `/soccer:wc` World Cup menu entry points.
