@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Removed the seasonal Champions League final launch/prediction flows after the event window to simplify widget refresh behavior.
+- Removed `/soccer:champions`, `/soccer:ucl`, and `/ucl:prediction-ai` commands after the Champions League final event window to simplify widget refresh behavior.
 
 ## 0.4.0 - 2026-05-30
 
