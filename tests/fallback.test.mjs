@@ -10,7 +10,6 @@ const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
 const originalToken = process.env.FOOTBALL_DATA_API_TOKEN;
 const originalLeagues = process.env.PI_SOCCER_LEAGUES;
-const originalChampionsForce = process.env.PI_SOCCER_CHAMPIONS_FORCE;
 
 let testRun = 0;
 let testHome;
@@ -33,7 +32,6 @@ beforeEach(async () => {
   process.env.USERPROFILE = testHome;
   process.env.FOOTBALL_DATA_API_TOKEN = "test-token";
   process.env.PI_SOCCER_LEAGUES = "SA";
-  process.env.PI_SOCCER_CHAMPIONS_FORCE = "off";
 
   agentDir = join(testHome, ".pi", "agent");
   configFile = join(agentDir, "pi-soccer-widget-config.json");
@@ -60,7 +58,6 @@ afterEach(() => {
   restoreEnv("USERPROFILE", originalUserProfile);
   restoreEnv("FOOTBALL_DATA_API_TOKEN", originalToken);
   restoreEnv("PI_SOCCER_LEAGUES", originalLeagues);
-  restoreEnv("PI_SOCCER_CHAMPIONS_FORCE", originalChampionsForce);
 });
 
 const theme = {
