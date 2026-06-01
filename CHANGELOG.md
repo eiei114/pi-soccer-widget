@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Removed `/soccer:champions`, `/soccer:ucl`, and `/ucl:prediction-ai` commands after the Champions League final event window to simplify widget refresh behavior.
+
 ## 0.4.0 - 2026-05-30
 
 - Added `/soccer:champions` and `/soccer:ucl` for a Champions League final matchday widget with football-data.org `CL` data when configured and a screenshotable scheduled fallback.
