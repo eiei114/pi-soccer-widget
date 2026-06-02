@@ -128,7 +128,7 @@ Only colon-form commands are supported:
 /soccer:status                show API key status without exposing it
 /soccer:logout                remove stored API key
 /soccer:sync                  force refresh cached data
-/soccer:search [name]         search teams by name (omit name to pick in UI)
+/soccer:search <name>         search teams by name (name required)
 /soccer:add [name]            add a team to the watchlist (omit name to pick in UI)
 /soccer:favorite [name]       set favorite team (omit name to pick in UI)
 /soccer:list                  show watchlist

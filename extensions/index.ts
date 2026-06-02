@@ -1057,7 +1057,7 @@ function formatCandidates(results: TeamRecord[], query?: string): string {
 }
 
 function formatWatchlistCandidates(results: TeamRecord[], query: string): string {
-  const rows = results.map((team) => `- ${teamLabel(team)}${team.tla ? ` | ${team.tla}` : ""}`);
+  const rows = results.map((team) => `- ${teamLabel(team)}`);
   return `Multiple watchlist teams match "${query}".\n${rows.join("\n")}\nRun the command without arguments to pick from the list.`;
 }
 
