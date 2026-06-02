@@ -1,30 +1,48 @@
 # pi-soccer-widget
 
-Pi Coding Agent extension that shows a soccer widget above the prompt editor.
+[![Publish to npm](https://github.com/eiei114/pi-soccer-widget/actions/workflows/publish.yml/badge.svg)](https://github.com/eiei114/pi-soccer-widget/actions/workflows/publish.yml)
+[![Auto Release](https://github.com/eiei114/pi-soccer-widget/actions/workflows/auto-release.yml/badge.svg)](https://github.com/eiei114/pi-soccer-widget/actions/workflows/auto-release.yml)
+[![npm version](https://img.shields.io/npm/v/pi-soccer-widget)](https://www.npmjs.com/package/pi-soccer-widget)
+[![npm downloads](https://img.shields.io/npm/dm/pi-soccer-widget)](https://www.npmjs.com/package/pi-soccer-widget)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Pi package](https://img.shields.io/badge/Pi-package-blue)](https://pi.dev/)
+[![Trusted Publishing](https://img.shields.io/badge/npm-Trusted%20Publishing-CB3837)](https://docs.npmjs.com/trusted-publishers)
 
-The widget prioritizes your favorite club, but can rotate to watchlist teams when the favorite has thin off-season data.
+Pi extension that shows a compact soccer widget above the prompt editor for your favorite club and World Cup follow.
+
+## What this is
+
+`pi-soccer-widget` is a [Pi Coding Agent](https://pi.dev/) package. It registers `/soccer:*` commands, stores lightweight local config under `~/.pi/agent/`, and renders one widget line focused on recent results, the next opponent, and optional standings. Club mode prioritizes your favorite team and can fall back to watchlist or discovery teams during thin off-season data. World Cup mode adds followed-country menus and matchday-oriented refresh.
 
 ## Features
 
-- Favorite team first
-- Watchlist fallback for off-season periods
-- Candidate search before adding teams, reducing typo mistakes
-- `/soccer:setup` guided API key + favorite team setup
-- `/soccer:worldcup` World Cup menu + followed country setup
-- 6-hour sync cache to reduce API requests
-- Discovery fallback from one random league top-3 pool per sync
+- Favorite club first, with watchlist and discovery fallback
+- Candidate search before adding teams to reduce typos
+- `/soccer:setup` guided API key and favorite-team setup
+- `/soccer:worldcup` menu plus first-run followed-country setup
+- 6-hour sync cache with optional `/soccer:sync`
 - One compact widget at a time
-- Last result + next opponent focused display
-- Optional standing summary on the first line
-- Configurable league search scope
+- Configurable league search scope via `PI_SOCCER_LEAGUES`
 
-## Requirements
+## Install
 
-- [Pi Coding Agent](https://pi.dev/) installed
+This is a Pi package. Install with `pi install`, not plain `npm install`:
+
+```bash
+pi install npm:pi-soccer-widget
+# or
+pi install git:github.com/eiei114/pi-soccer-widget
+```
+
+By default `pi install` writes to `~/.pi/agent/settings.json`. Add `-l` to install into the current project (`.pi/settings.json`).
+
+Requirements:
+
+- Pi Coding Agent CLI
 - Node.js >= 20
-- A free API token from [football-data.org](https://www.football-data.org/client/register) for live-ish score/status updates.
+- A free token from [football-data.org](https://www.football-data.org/client/register)
 
-If you don't have Pi yet, install the CLI first:
+If Pi is not installed yet:
 
 ```bash
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
@@ -32,204 +50,96 @@ npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 curl -fsSL https://pi.dev/install.sh | sh
 ```
 
-## Install
+## Quick start
 
-This is a Pi package, so install it with `pi install` (not plain `npm install`):
+1. Install the package with `pi install npm:pi-soccer-widget`.
+2. Start or reload Pi (`/reload` in an existing session).
+3. Run `/soccer:setup` to store your football-data.org API key and pick a favorite team.
+4. Confirm setup with `/soccer:status` (shows source only, never the key value).
 
-```bash
-# from npm
-pi install npm:pi-soccer-widget
-
-# or from GitHub
-pi install git:github.com/eiei114/pi-soccer-widget
-```
-
-By default `pi install` writes to your user settings (`~/.pi/agent/settings.json`).
-Add `-l` to install into the current project (`.pi/settings.json`) instead.
-
-In a running Pi session, run `/reload` to pick up the newly installed extension
-(or start a new session). The `/soccer:*` commands are then available.
-
-Manage the package later with:
-
-```bash
-pi list                          # show installed packages
-pi update npm:pi-soccer-widget   # update to the latest version
-pi remove npm:pi-soccer-widget   # uninstall
-```
-
-### Local development
-
-To hack on the extension from a checkout, load it directly for the current run:
-
-```bash
-pi -e ./extensions/index.ts
-```
-
-Or drop it into an auto-discovery path and hot-reload with `/reload`:
-
-- `~/.pi/agent/extensions/` - global (all projects)
-- `.pi/extensions/` - project-local
-
-## API key setup
-
-Get a token from football-data.org. Then run this inside Pi:
-
-```text
-/soccer:setup
-```
-
-Check whether Pi sees your API key without exposing the key value:
-
-```text
-/soccer:status
-```
-
-For API-key-only setup:
-
-```text
-/soccer:login
-```
-
-The key is entered through Pi extension UI, not through the chat/model context.
-
-Environment variable fallback is also supported:
+Optional environment fallback:
 
 ```bash
 FOOTBALL_DATA_API_TOKEN=your_api_token
 ```
 
-## Optional environment
+## Usage summary
+
+Canonical commands (11 total):
+
+```text
+/soccer:setup
+/soccer:login
+/soccer:status
+/soccer:logout
+/soccer:sync
+/soccer:search <name>
+/soccer:add [name]
+/soccer:favorite [name]
+/soccer:list
+/soccer:remove [name]
+/soccer:worldcup
+```
+
+Omit the team name on `/soccer:add`, `/soccer:favorite`, or `/soccer:remove` to open a Pi UI picker. Pass a team name for fuzzy match; numeric IDs and cached search indexes are not supported.
+
+For World Cup menus, widget behavior, environment variables, and local file layout, see [docs/usage.md](./docs/usage.md). For sample widget output, see [docs/examples.md](./docs/examples.md).
+
+## Package contents
+
+Published npm tarball includes:
+
+- `extensions/index.ts` and compiled `dist/extensions/*`
+- `README.md`, `CHANGELOG.md`, `LICENSE`
+- `OPERATIONS.md` (maintainer operations guide)
+
+Runtime state is written locally under `~/.pi/agent/` (config, auth, cache, snapshots). See [docs/usage.md](./docs/usage.md#local-files).
+
+## Development
 
 ```bash
-PI_SOCCER_TEAM="Real Madrid"
-PI_SOCCER_COUNTRY="Japan"
-PI_SOCCER_REFRESH_MIN=15
-PI_SOCCER_LEAGUES=PL,PD,SA,BL1,FL1,DED,PPL
+npm install
+npm test          # build + node:test suite
+npm run check     # test + pack dry-run
+npm run release:check
 ```
 
-Default league search scope:
+Load a checkout directly:
 
-- `PL` Premier League
-- `PD` La Liga
-- `SA` Serie A
-- `BL1` Bundesliga
-- `FL1` Ligue 1
-- `DED` Eredivisie
-- `PPL` Primeira Liga
-
-## Commands
-
-Only colon-form commands are supported:
-
-```text
-/soccer:setup                 guided API key + favorite team setup
-/soccer:login                 enter and store API key via Pi UI
-/soccer:status                show API key status without exposing it
-/soccer:logout                remove stored API key
-/soccer:sync                  force refresh cached data
-/soccer:search <name>         search teams by name (name required)
-/soccer:add [name]            add a team to the watchlist (omit name to pick in UI)
-/soccer:favorite [name]       set favorite team (omit name to pick in UI)
-/soccer:list                  show watchlist
-/soccer:remove [name]         remove a watchlist team (omit name to pick in UI)
-/soccer:worldcup              open World Cup menu or first-run country setup
+```bash
+pi -e ./extensions/index.ts
 ```
 
-Run `/soccer:add`, `/soccer:favorite`, or `/soccer:remove` without arguments to pick from a Pi UI list. Team names can be passed directly (fuzzy match); numeric IDs and cached search result numbers are not supported.
+Or place the extension under `~/.pi/agent/extensions/` or `.pi/extensions/` and run `/reload`.
 
-## World Cup mode
+## Release
 
-Run `/soccer:worldcup` to open the World Cup menu:
+Releases use GitHub Actions:
 
-- Follow my country
-- Today's matches - WC matches for the current local date
-- Group table - followed-country group table; does not assume the first table is the right group
-- Match detail - followed-country match facts/events without cramming them into the widget
-- Top scorers - WC scorers when football-data.org supports them, otherwise `not available`
-- Settings - switch the default widget between club mode and World Cup mode
+- **Auto Release** (`auto-release.yml`) tags `v*` when `package.json` version changes on `main`.
+- **Publish to npm** (`publish.yml`) runs `npm run check`, then publishes with npm Trusted Publishing (OIDC).
 
-On first run, the extension picks a followed country in this order:
-
-1. Existing saved World Cup config
-2. `PI_SOCCER_COUNTRY`
-3. Locale/timezone guess
-4. Manual country search/select
-
-Guessed countries always require confirmation before saving. IP geolocation is not used.
-
-World Cup uses football-data.org `WC` endpoints for teams, matches, standings, and scorers where available. `WC` is not included in the normal club league search/discovery list.
-
-## Widget behavior
-
-When the favorite has both a recent result and an upcoming match, it is shown first.
-When favorite data is thin, the widget can fall back to another watchlist team or a cached discovery team. Sync runs at most every 6 hours unless `/soccer:sync` is used.
-
-World Cup widget mode is opt-in when you already have a club watchlist, and automatic when no club favorite exists. It stays compact: followed-country score/next kickoff, goal scorers when available, group rank, notable red-card/penalty/shootout context, today's top matches when the followed country is inactive, and a cache/sync hint. Matchday refresh uses a shorter ~10 minute cadence and does not claim second-by-second live precision.
-
-Example:
-
-```text
-Soccer: Arsenal | PL #2 | 71pts | favorite
-Last: Arsenal 2-1 Chelsea  W
-Next: vs Liverpool | 5/24 20:00
-```
-
-## Local files
-
-The extension stores lightweight local state under `~/.pi/agent/`:
-
-- `pi-soccer-widget-auth.json` - stored API key from `/soccer:login`
-- `pi-soccer-widget-config.json`
-- `pi-soccer-widget-teams-cache.json`
-- `pi-soccer-widget-snapshots.json` - 6-hour cached match/standing snapshots
-
-`pi-soccer-widget-auth.json` contains secret material and is local-only. Do not commit it, paste it into issues, or include it in logs. Use `/soccer:logout` to remove the stored key. If `FOOTBALL_DATA_API_TOKEN` is set, it takes priority over this file, and `/soccer:status` reports only the source, never the key value.
-
-World Cup followed country state is stored in optional `worldCup` fields inside `pi-soccer-widget-config.json` and remains backward-compatible with existing club/watchlist config.
-
-Legacy `soccer-team.json` is migrated automatically when present.
-
-## Release checklist
-
-Run a single command to verify everything before publishing:
+Before merging a release bump, run:
 
 ```bash
 npm run release:check
 ```
 
-This runs `npm run check` (build + dry-run pack) then validates the tarball against the expected file list.
+Maintainer checklist and tarball expectations: [docs/release.md](./docs/release.md).
 
-### What to verify before release
+## Security
 
-1. `npm run check` passes (TypeScript compiles, no errors)
-2. `npm run release:check` passes (build + pack + file list validation)
-3. Pack contents match the expected list in `scripts/release-check.mjs`
-4. No unintended files (source maps, test fixtures) leak into the tarball
-5. Version in `package.json` is bumped
-6. `CHANGELOG.md` has an entry for the new version
+API keys are entered through Pi extension UI (`/soccer:login`), stored locally at `~/.pi/agent/pi-soccer-widget-auth.json`, and never sent to the model. `FOOTBALL_DATA_API_TOKEN` overrides the saved file when set. Report security issues privately; see [SECURITY.md](./SECURITY.md).
 
-### When to update README or CHANGELOG
+## Links
 
-Update **CHANGELOG.md** when the change is user-visible:
-- New or changed commands or features
-- Bug fixes that affect behavior
-- Breaking changes or removed features
-- Dependency bumps that change runtime behavior
+- npm: https://www.npmjs.com/package/pi-soccer-widget
+- Issues: https://github.com/eiei114/pi-soccer-widget/issues
+- Usage details: [docs/usage.md](./docs/usage.md)
+- Examples: [docs/examples.md](./docs/examples.md)
+- Release checklist: [docs/release.md](./docs/release.md)
+- Maintainer operations: [OPERATIONS.md](./OPERATIONS.md)
 
-Update **README.md** when:
-- New commands or options are added
-- Install or setup instructions change
-- Environment variables or config format changes
+## License
 
-Routine refactors, test additions, or internal tooling changes generally do not require either update.
-
-## Maintenance
-
-This package is maintained with a small, safety-first process. See [OPERATIONS.md](./OPERATIONS.md) for issue triage, release checks, security handling, and external API fallback policy.
-
-## Roadmap
-
-- FIFA World Cup 2026 mode
-- Better fuzzy matching for misspelled team names
-- More data providers
+MIT. See [LICENSE](./LICENSE).

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 - 2026-06-03
+
+### Changed
+
+- Restructured README to Pi OSS minimal-docs entrypoints (badges, quick start, usage summary, release/security links).
+- Added `docs/usage.md`, `docs/examples.md`, and `docs/release.md` for detailed user and maintainer docs.
+- Updated `SECURITY.md` command examples to canonical `/soccer:*` names.
+
 ## 1.0.0 - 2026-06-02
 
 ### Breaking changes
