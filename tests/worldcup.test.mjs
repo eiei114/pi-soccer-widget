@@ -98,10 +98,11 @@ function createCtx(overrides = {}) {
   };
 }
 
-test("/soccer:worldcup and /soccer:wc are registered without space-chained command registration", async () => {
+test("/soccer:worldcup is registered without legacy aliases or space-chained commands", async () => {
   await withExtension(async ({ commands }) => {
     assert.ok(commands.has("soccer:worldcup"));
-    assert.ok(commands.has("soccer:wc"));
+    assert.equal(commands.has("soccer:wc"), false);
+    assert.equal(commands.has("soccer"), false);
     assert.equal(commands.has("soccer worldcup"), false);
     assert.equal(commands.has("soccer wc"), false);
   });
@@ -138,7 +139,7 @@ test("saved World Cup config opens the expected menu", async () => {
   });
 });
 
-test("/soccer:wc confirms PI_SOCCER_COUNTRY before persisting followed country", async () => {
+test("/soccer:worldcup confirms PI_SOCCER_COUNTRY before persisting followed country", async () => {
   await withExtension(async ({ commands, configFile }) => {
     process.env.PI_SOCCER_COUNTRY = "Japan";
     const { ctx, confirms } = createCtx({
@@ -146,7 +147,7 @@ test("/soccer:wc confirms PI_SOCCER_COUNTRY before persisting followed country",
       select: () => undefined,
     });
 
-    await commands.get("soccer:wc").handler("", ctx);
+    await commands.get("soccer:worldcup").handler("", ctx);
 
     assert.equal(confirms.length, 1);
     assert.match(confirms[0].detail, /PI_SOCCER_COUNTRY/);
@@ -176,17 +177,9 @@ test("declined guessed country falls back to manual country search", async () =>
   });
 });
 
-test("/soccer worldcup is not a World Cup command path", async () => {
+test("legacy /soccer command is not registered", async () => {
   await withExtension(async ({ commands }) => {
-    const soccer = commands.get("soccer");
-    const { ctx, selects, confirms, notifications } = createCtx();
-
-    assert.equal(soccer.getArgumentCompletions("world"), null);
-    await soccer.handler("worldcup", ctx);
-
-    assert.equal(selects.length, 0);
-    assert.equal(confirms.length, 0);
-    assert.match(notifications.at(-1)?.text ?? "", /API key is not set/);
+    assert.equal(commands.has("soccer"), false);
   });
 });
 

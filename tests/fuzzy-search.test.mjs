@@ -21,10 +21,13 @@ test("fuzzy score still ranks exact and prefix matches above misspell matches", 
   assert.ok(__testing.scoreTeamMatch("real", teams[2]) > __testing.scoreTeamMatch("rel", teams[2]));
 });
 
-test("watchlist lookup keeps numeric selection and fuzzy string selection working", () => {
+test("watchlist lookup rejects numeric selection and keeps fuzzy string selection working", () => {
   const config = { favoriteTeamId: 1, teams, updatedAt: new Date(0).toISOString() };
 
-  assert.equal(__testing.teamFromConfigArg("3", config).team?.teamId, 3);
+  const numeric = __testing.teamFromConfigArg("3", config);
+  assert.match(numeric.message ?? "", /Numeric team IDs are no longer supported/);
+  assert.equal(numeric.team, undefined);
+
   assert.equal(__testing.teamFromConfigArg("arsnal", config).team?.teamId, 1);
   assert.equal(__testing.teamFromConfigArg("manchster united", config).team?.teamId, 4);
 });

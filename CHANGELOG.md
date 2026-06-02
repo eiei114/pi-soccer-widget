@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0 - 2026-06-02
+
+### Breaking changes
+
+- Command surface is now 11 canonical `/soccer:*` commands only.
+- Removed legacy `/soccer` space-separated subcommands, aliases (`soccer:wc`, `soccer:fav`, `soccer:rm`, `soccer:get-key`, `soccer:pick`), team shorthand (`/soccer Arsenal`), and numeric/cache-index team selection.
+- `/soccer:add`, `/soccer:favorite`, and `/soccer:remove` without arguments open a Pi UI picker; pass a team name for fuzzy match instead of a number.
+- Removed search-result cache file (`pi-soccer-widget-search.json`) and tab completion for cached numeric picks.
+
 ## Unreleased
 
 - Removed `/soccer:champions`, `/soccer:ucl`, and `/ucl:prediction-ai` commands after the Champions League final event window to simplify widget refresh behavior.

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-async function withSoccerCommand(fn) {
+async function withSoccerCommands(fn) {
   const tmpHome = await mkdtemp(join(tmpdir(), "pi-soccer-widget-home-"));
   const previousEnv = {
     HOME: process.env.HOME,
@@ -26,9 +26,7 @@ async function withSoccerCommand(fn) {
         commands.set(name, definition);
       },
     });
-    const command = commands.get("soccer");
-    assert.ok(command, "soccer command should be registered");
-    await fn(command, commands);
+    await fn(commands);
   } finally {
     if (previousEnv.HOME === undefined) delete process.env.HOME;
     else process.env.HOME = previousEnv.HOME;
@@ -56,73 +54,65 @@ function createCtx(inputValue) {
   };
 }
 
-test("/soccer status reports stored API key without exposing its value", async () => {
-  await withSoccerCommand(async (command) => {
+test("/soccer:status reports stored API key without exposing its value", async () => {
+  await withSoccerCommands(async (commands) => {
     const storedSecret = "fd_test_stored_should_not_appear_1234567890";
+    const login = commands.get("soccer:login");
+    const status = commands.get("soccer:status");
+    assert.ok(login, "soccer:login should be registered");
+    assert.ok(status, "soccer:status should be registered");
     const { ctx, notifications } = createCtx(storedSecret);
 
-    await command.handler("login", ctx);
+    await login.handler("", ctx);
     notifications.length = 0;
-    await command.handler("status", ctx);
+    await status.handler("", ctx);
 
-    const status = notifications.at(-1)?.text ?? "";
-    assert.match(status, /configured via pi-soccer-widget login/);
-    assert.equal(status.includes(storedSecret), false, "status must not include stored API key value");
+    const statusText = notifications.at(-1)?.text ?? "";
+    assert.match(statusText, /configured via pi-soccer-widget login/);
+    assert.equal(statusText.includes(storedSecret), false, "status must not include stored API key value");
   });
 });
 
-test("FOOTBALL_DATA_API_TOKEN takes priority and status still hides secrets", async () => {
-  await withSoccerCommand(async (command) => {
+test("FOOTBALL_DATA_API_TOKEN takes priority and /soccer:status still hides secrets", async () => {
+  await withSoccerCommands(async (commands) => {
     const storedSecret = "fd_test_stored_should_not_appear_abcdefghij";
     const envSecret = "fd_test_env_should_not_appear_0987654321";
+    const login = commands.get("soccer:login");
+    const status = commands.get("soccer:status");
     const { ctx, notifications } = createCtx(storedSecret);
 
-    await command.handler("login", ctx);
+    await login.handler("", ctx);
     process.env.FOOTBALL_DATA_API_TOKEN = envSecret;
     notifications.length = 0;
-    await command.handler("status", ctx);
+    await status.handler("", ctx);
 
-    const status = notifications.at(-1)?.text ?? "";
-    assert.match(status, /FOOTBALL_DATA_API_TOKEN environment variable/);
-    assert.equal(status.includes(envSecret), false, "status must not include environment API key value");
-    assert.equal(status.includes(storedSecret), false, "status must not include stored API key value");
+    const statusText = notifications.at(-1)?.text ?? "";
+    assert.match(statusText, /FOOTBALL_DATA_API_TOKEN environment variable/);
+    assert.equal(statusText.includes(envSecret), false, "status must not include environment API key value");
+    assert.equal(statusText.includes(storedSecret), false, "status must not include stored API key value");
   });
 });
 
-test("/soccer:status alias reports API key status without exposing secrets", async () => {
-  await withSoccerCommand(async (command, commands) => {
-    const storedSecret = "fd_test_stored_should_not_appear_alias_1234567890";
-    const { ctx, notifications } = createCtx(storedSecret);
-    const statusAlias = commands.get("soccer:status");
-
-    assert.ok(statusAlias, "soccer:status alias should be registered");
-    await command.handler("login", ctx);
-    notifications.length = 0;
-    await statusAlias.handler("", ctx);
-
-    const status = notifications.at(-1)?.text ?? "";
-    assert.match(status, /configured via pi-soccer-widget login/);
-    assert.equal(status.includes(storedSecret), false, "status alias must not include stored API key value");
-  });
-});
-
-test("all primary /soccer:* command aliases are registered", async () => {
-  await withSoccerCommand(async (_command, commands) => {
+test("canonical /soccer:* commands are registered", async () => {
+  await withSoccerCommands(async (commands) => {
     for (const name of [
       "soccer:setup",
-      "soccer:get-key",
       "soccer:login",
       "soccer:status",
       "soccer:logout",
       "soccer:sync",
-      "soccer:pick",
       "soccer:search",
       "soccer:add",
       "soccer:favorite",
       "soccer:list",
       "soccer:remove",
+      "soccer:worldcup",
     ]) {
-      assert.ok(commands.has(name), `${name} alias should be registered`);
+      assert.ok(commands.has(name), `${name} should be registered`);
     }
+    assert.equal(commands.has("soccer"), false, "legacy /soccer command should not be registered");
+    assert.equal(commands.has("soccer:wc"), false, "soccer:wc alias should not be registered");
+    assert.equal(commands.has("soccer:get-key"), false, "soccer:get-key alias should not be registered");
+    assert.equal(commands.has("soccer:pick"), false, "soccer:pick alias should not be registered");
   });
 });
