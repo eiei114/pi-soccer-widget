@@ -9,9 +9,8 @@ The widget prioritizes your favorite club, but can rotate to watchlist teams whe
 - Favorite team first
 - Watchlist fallback for off-season periods
 - Candidate search before adding teams, reducing typo mistakes
-- Tab completion for subcommands and cached result numbers
-- `/soccer:setup` and `/soccer:pick` guided flows
-- `/soccer:worldcup` and `/soccer:wc` World Cup menu + followed country setup
+- `/soccer:setup` guided API key + favorite team setup
+- `/soccer:worldcup` World Cup menu + followed country setup
 - 6-hour sync cache to reduce API requests
 - Discovery fallback from one random league top-3 pool per sync
 - One compact widget at a time
@@ -49,7 +48,7 @@ By default `pi install` writes to your user settings (`~/.pi/agent/settings.json
 Add `-l` to install into the current project (`.pi/settings.json`) instead.
 
 In a running Pi session, run `/reload` to pick up the newly installed extension
-(or start a new session). The `/soccer` command is then available.
+(or start a new session). The `/soccer:*` commands are then available.
 
 Manage the package later with:
 
@@ -121,31 +120,27 @@ Default league search scope:
 
 ## Commands
 
+Only colon-form commands are supported:
+
 ```text
-/soccer                       refresh widget from cache
 /soccer:setup                 guided API key + favorite team setup
-/soccer:get-key               show signup link and API key instructions
 /soccer:login                 enter and store API key via Pi UI
 /soccer:status                show API key status without exposing it
 /soccer:logout                remove stored API key
 /soccer:sync                  force refresh cached data
-/soccer:pick                  search/select favorite with Pi UI
-/soccer:search arsenal        show candidate teams
-/soccer:add 1                 add candidate #1 to watchlist
-/soccer:favorite 1            set candidate #1 as favorite
+/soccer:search [name]         search teams by name (omit name to pick in UI)
+/soccer:add [name]            add a team to the watchlist (omit name to pick in UI)
+/soccer:favorite [name]       set favorite team (omit name to pick in UI)
 /soccer:list                  show watchlist
-/soccer:remove 2              remove watchlist item #2
-/soccer Arsenal               shorthand: set favorite if unambiguous
+/soccer:remove [name]         remove a watchlist team (omit name to pick in UI)
 /soccer:worldcup              open World Cup menu or first-run country setup
-/soccer:wc                    alias for /soccer:worldcup
 ```
 
-The older subcommand form still works for compatibility, such as `/soccer status` and `/soccer search arsenal`.
-World Cup is colon-command only; `/soccer worldcup ...` is not a supported command path.
+Run `/soccer:add`, `/soccer:favorite`, or `/soccer:remove` without arguments to pick from a Pi UI list. Team names can be passed directly (fuzzy match); numeric IDs and cached search result numbers are not supported.
 
 ## World Cup mode
 
-Run `/soccer:worldcup` or `/soccer:wc` to open the World Cup menu:
+Run `/soccer:worldcup` to open the World Cup menu:
 
 - Follow my country
 - Today's matches - WC matches for the current local date
@@ -187,7 +182,6 @@ The extension stores lightweight local state under `~/.pi/agent/`:
 - `pi-soccer-widget-auth.json` - stored API key from `/soccer:login`
 - `pi-soccer-widget-config.json`
 - `pi-soccer-widget-teams-cache.json`
-- `pi-soccer-widget-search.json`
 - `pi-soccer-widget-snapshots.json` - 6-hour cached match/standing snapshots
 
 `pi-soccer-widget-auth.json` contains secret material and is local-only. Do not commit it, paste it into issues, or include it in logs. Use `/soccer:logout` to remove the stored key. If `FOOTBALL_DATA_API_TOKEN` is set, it takes priority over this file, and `/soccer:status` reports only the source, never the key value.

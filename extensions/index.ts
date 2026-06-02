@@ -15,18 +15,17 @@
  *   PI_SOCCER_LEAGUES        - comma-separated football-data league codes
  *
  * Commands:
- *   /soccer                  - refresh widget
- *   /soccer:setup            - guided API key + favorite team setup
- *   /soccer:login            - enter and store Football-data API key via Pi UI
- *   /soccer:status           - show API key status without exposing the key
- *   /soccer:sync             - force refresh cached soccer data
- *   /soccer:search <query>   - show candidate teams
- *   /soccer:add <query|n>    - add team to watchlist
- *   /soccer:favorite <query|n> - set favorite team
- *   /soccer:list             - show watchlist
- *   /soccer:remove <query|n> - remove team from watchlist
- *   /soccer:worldcup         - open World Cup menu / followed country setup
- *   /soccer:wc               - alias for /soccer:worldcup
+ *   /soccer:setup              - guided API key + favorite team setup
+ *   /soccer:login              - enter and store Football-data API key via Pi UI
+ *   /soccer:logout             - remove stored API key
+ *   /soccer:status             - show API key status without exposing the key
+ *   /soccer:sync               - force refresh cached soccer data
+ *   /soccer:search <team-name> - search teams by name
+ *   /soccer:add [team-name]    - add team to watchlist (UI picker when omitted)
+ *   /soccer:favorite [team-name] - set favorite team (UI picker when omitted)
+ *   /soccer:list               - show watchlist
+ *   /soccer:remove [team-name] - remove team from watchlist (UI picker when omitted)
+ *   /soccer:worldcup           - open World Cup menu / followed country setup
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -50,7 +49,6 @@ const AUTH_FILE = join(AGENT_DIR, "pi-soccer-widget-auth.json");
 const LEGACY_TEAM_FILE = join(AGENT_DIR, "soccer-team.json");
 const CACHE_FILE = join(AGENT_DIR, "pi-soccer-widget-teams-cache.json");
 const LEGACY_CACHE_FILE = join(AGENT_DIR, "soccer-teams-cache.json");
-const SEARCH_FILE = join(AGENT_DIR, "pi-soccer-widget-search.json");
 const SNAPSHOT_CACHE_FILE = join(AGENT_DIR, "pi-soccer-widget-snapshots.json");
 const WIDGET_ID = "pi-soccer-widget";
 
@@ -64,27 +62,18 @@ const SYNC_LOCK_MS = 5 * 60 * 1000;
 const DISCOVERY_TOP_N = 3;
 const WORLD_CUP_CODE = "WC";
 
-const COMMANDS = [
-  ["setup", "guided API key + favorite team setup"],
-  ["get-key", "show Football-data signup/API key help"],
-  ["login", "enter and store Football-data API key via Pi UI"],
-  ["status", "show API key and cache status"],
-  ["sync", "refresh cached soccer data"],
-  ["pick", "search and choose favorite team from a list"],
-  ["search", "search team candidates"],
-  ["add", "add a team from cached search results"],
-  ["favorite", "set favorite team from cached search results"],
-  ["list", "show watchlist"],
-  ["remove", "remove a watchlist team"],
-  ["logout", "remove stored API key"],
-] as const;
-
-const COLON_COMMAND_ALIASES = [
-  ...COMMANDS.map(([command, description]) => ({ name: `soccer:${command}`, command, description })),
-  { name: "soccer:key", command: "get-key", description: "show Football-data signup/API key help" },
-  { name: "soccer:api-key", command: "get-key", description: "show Football-data signup/API key help" },
-  { name: "soccer:fav", command: "favorite", description: "set favorite team from cached search results" },
-  { name: "soccer:rm", command: "remove", description: "remove a watchlist team" },
+const COLON_COMMANDS = [
+  { name: "soccer:setup", description: "guided API key + favorite team setup" },
+  { name: "soccer:login", description: "enter and store Football-data API key via Pi UI" },
+  { name: "soccer:logout", description: "remove stored API key" },
+  { name: "soccer:status", description: "show API key and cache status" },
+  { name: "soccer:sync", description: "refresh cached soccer data" },
+  { name: "soccer:search", description: "search teams by name" },
+  { name: "soccer:add", description: "add a team to the watchlist" },
+  { name: "soccer:favorite", description: "set favorite team" },
+  { name: "soccer:list", description: "show watchlist" },
+  { name: "soccer:remove", description: "remove a watchlist team" },
+  { name: "soccer:worldcup", description: "open World Cup menu and followed country setup" },
 ] as const;
 
 const WORLD_CUP_MENU_ITEMS = [
@@ -95,12 +84,6 @@ const WORLD_CUP_MENU_ITEMS = [
   "Top scorers",
   "Settings",
 ] as const;
-
-const WORLD_CUP_COMMAND_ALIASES = [
-  { name: "soccer:worldcup", description: "open World Cup menu and followed country setup" },
-  { name: "soccer:wc", description: "alias for /soccer:worldcup" },
-] as const;
-
 
 type Notify = (msg: string, level: "info" | "warning" | "error") => void;
 type SetWidget = (id: string, lines: string[] | undefined) => void;
@@ -143,12 +126,6 @@ interface TeamsCache {
     timestamp: number;
     teams: Array<{ id: number; name: string; shortName: string; tla: string }>;
   };
-}
-
-interface SearchCache {
-  query: string;
-  timestamp: number;
-  results: TeamRecord[];
 }
 
 interface SoccerAuth {
@@ -480,14 +457,6 @@ function readTeamsCache(): TeamsCache {
 
 function writeTeamsCache(cache: TeamsCache): void {
   writeJson(CACHE_FILE, cache);
-}
-
-function readSearchCache(): SearchCache | null {
-  return readJson<SearchCache>(SEARCH_FILE);
-}
-
-function writeSearchCache(query: string, results: TeamRecord[]): void {
-  writeJson(SEARCH_FILE, { query, timestamp: Date.now(), results } satisfies SearchCache);
 }
 
 function emptySnapshotCache(): SnapshotCache {
@@ -1082,17 +1051,18 @@ async function searchTeams(query: string, token: string): Promise<TeamRecord[]> 
 
 function formatCandidates(results: TeamRecord[], query?: string): string {
   if (results.length === 0) return `No teams found${query ? ` for "${query}"` : ""}.`;
-  const header = query ? `Search results for "${query}":` : "Last search results:";
-  const rows = results.map((team, index) => `${index + 1}. ${team.name} | ${team.leagueCode}${team.tla ? ` | ${team.tla}` : ""}`);
-  return `${header}\n${rows.join("\n")}\nUse: /soccer:add <number> or /soccer:favorite <number>`;
+  const header = query ? `Search results for "${query}":` : "Search results:";
+  const rows = results.map((team) => `- ${team.name} | ${team.leagueCode}${team.tla ? ` | ${team.tla}` : ""}`);
+  return `${header}\n${rows.join("\n")}\nUse a team name with /soccer:add, /soccer:favorite, or /soccer:remove.`;
 }
 
-function formatWatchlistCandidates(results: TeamRecord[], config: SoccerConfig, query: string): string {
-  const rows = results.map((team) => {
-    const index = config.teams.findIndex((item) => item.teamId === team.teamId);
-    return `${index + 1}. ${teamLabel(team)}`;
-  });
-  return `Multiple watchlist teams match "${query}".\n${rows.join("\n")}\nUse: /soccer:remove <watchlist number>`;
+function formatWatchlistCandidates(results: TeamRecord[], query: string): string {
+  const rows = results.map((team) => `- ${teamLabel(team)}${team.tla ? ` | ${team.tla}` : ""}`);
+  return `Multiple watchlist teams match "${query}".\n${rows.join("\n")}\nRun the command without arguments to pick from the list.`;
+}
+
+function numericArgError(): string {
+  return "Numeric team IDs are no longer supported. Use a team name, or run the command without arguments to pick from the UI.";
 }
 
 function parseIndex(value: string): number | null {
@@ -1103,18 +1073,11 @@ function parseIndex(value: string): number | null {
 
 async function teamFromArg(arg: string, token: string): Promise<{ team?: TeamRecord; candidates?: TeamRecord[]; message?: string }> {
   const value = arg.trim();
-  if (!value) return { message: "Missing team. Use /soccer:search <name>." };
+  if (!value) return { message: "Missing team name." };
 
-  const index = parseIndex(value);
-  if (index !== null) {
-    const cache = readSearchCache();
-    const team = cache?.results[index - 1];
-    if (!team) return { message: `No cached search result #${index}. Run /soccer:search <name> first.` };
-    return { team };
-  }
+  if (parseIndex(value) !== null) return { message: numericArgError() };
 
   const candidates = await searchTeams(value, token);
-  writeSearchCache(value, candidates);
   if (candidates.length === 0) return { message: `No teams found for "${value}".` };
 
   const q = normalizeName(value);
@@ -1124,18 +1087,18 @@ async function teamFromArg(arg: string, token: string): Promise<{ team?: TeamRec
   return { candidates };
 }
 
-function teamFromConfigArg(arg: string, config: SoccerConfig): { team?: TeamRecord; candidates?: TeamRecord[] } {
+function teamFromConfigArg(arg: string, config: SoccerConfig): { team?: TeamRecord; candidates?: TeamRecord[]; message?: string } {
   const value = arg.trim();
-  const index = parseIndex(value);
-  if (index !== null) return { team: config.teams[index - 1] };
   if (!value) return {};
+
+  if (parseIndex(value) !== null) return { message: numericArgError() };
 
   const scored = config.teams
     .map((team) => ({ team, score: scoreTeamMatch(value, team) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || a.team.name.localeCompare(b.team.name));
 
-  if (scored.length === 0) return {};
+  if (scored.length === 0) return { message: `No watchlist team matches "${value}".` };
   const bestScore = scored[0].score;
   const best = scored.filter((item) => item.score === bestScore).map((item) => item.team);
   if (best.length === 1) return { team: best[0] };
@@ -1365,7 +1328,7 @@ function renderNoToken(theme: Theme): string[] {
 function renderNoTeams(theme: Theme): string[] {
   return [
     theme.fg("dim", "Soccer: no favorite team yet"),
-    theme.fg("dim", "Run /soccer:setup or /soccer:pick"),
+    theme.fg("dim", "Run /soccer:setup or /soccer:add"),
   ];
 }
 
@@ -1476,16 +1439,27 @@ async function ensureTokenForSetup(ctx: any): Promise<string | undefined> {
   return apiKey;
 }
 
+async function pickWatchlistTeam(ctx: any, config: SoccerConfig, title: string): Promise<TeamRecord | null> {
+  if (config.teams.length === 0) {
+    showText(ctx, "No teams in watchlist. Run /soccer:add first.", "warning");
+    return null;
+  }
+  const labels = config.teams.map((team) => `${teamLabel(team)}${team.teamId === config.favoriteTeamId ? " (favorite)" : ""}`);
+  const selected = await ctx.ui.select(title, labels);
+  if (!selected) return null;
+  const index = labels.indexOf(selected);
+  return index >= 0 ? config.teams[index] : null;
+}
+
 async function pickTeam(ctx: any, token: string, options?: { addOnly?: boolean }): Promise<TeamRecord | null> {
   const query = String(await ctx.ui.input("Search soccer team:", "e.g. Arsenal, Barcelona, Madrid") ?? "").trim();
   if (!query) return null;
   const results = await searchTeams(query, token);
-  writeSearchCache(query, results);
   if (results.length === 0) {
     showText(ctx, `No teams found for "${query}".`, "warning");
     return null;
   }
-  const labels = results.map((team, index) => `${index + 1}. ${team.name} | ${team.leagueCode}${team.tla ? ` | ${team.tla}` : ""}`);
+  const labels = results.map((team) => `${team.name} | ${team.leagueCode}${team.tla ? ` | ${team.tla}` : ""}`);
   const selected = await ctx.ui.select(options?.addOnly ? "Add team to watchlist:" : "Choose favorite team:", labels);
   if (!selected) return null;
   const index = labels.indexOf(selected);
@@ -1626,17 +1600,8 @@ async function handleWorldCupCommand(_args: string, ctx: any): Promise<void> {
   await showWorldCupMenu(ctx, config);
 }
 
-async function handleSoccerCommand(args: string, ctx: any): Promise<void> {
+async function handleSoccerCommand(command: string, value: string, ctx: any): Promise<void> {
   const theme = ctx.ui.theme;
-  const trimmed = String(args || "").trim();
-  const [commandRaw, ...rest] = trimmed.split(/\s+/).filter(Boolean);
-  const command = (commandRaw ?? "").toLowerCase();
-  const value = rest.join(" ");
-
-  if (["get-key", "key", "api-key"].includes(command)) {
-    showText(ctx, apiKeyGuideText());
-    return;
-  }
 
   if (command === "login") {
     const entered = await ctx.ui.input("Football-data.org API key:", "paste API key here");
@@ -1685,11 +1650,6 @@ async function handleSoccerCommand(args: string, ctx: any): Promise<void> {
     return;
   }
 
-  if (!command) {
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
-    return;
-  }
-
   if (command === "sync") {
     const cache = await syncData(config, token, { force: true });
     showText(ctx, `Soccer data synced. Discovery league: ${cache.discoveryLeagueCode ?? "none"}`);
@@ -1697,126 +1657,101 @@ async function handleSoccerCommand(args: string, ctx: any): Promise<void> {
     return;
   }
 
-  if (command === "pick") {
-    const picked = await pickTeam(ctx, token);
-    if (!picked) return;
-    config = addTeam(config, picked);
-    config.favoriteTeamId = picked.teamId;
-    writeConfig(config);
-    await syncData(config, token, { force: true });
-    showText(ctx, `Favorite set: ${teamLabel(picked)}`);
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
-    return;
-  }
-
   if (command === "search") {
+    if (!value.trim()) {
+      showText(ctx, "Missing team name. Use /soccer:search <team-name>.", "warning");
+      return;
+    }
     const results = await searchTeams(value, token);
-    writeSearchCache(value, results);
     showText(ctx, formatCandidates(results, value), results.length ? "info" : "warning");
     return;
   }
 
   if (command === "list") {
     if (config.teams.length === 0) {
-      showText(ctx, "No teams in watchlist. Run /soccer:pick.", "warning");
+      showText(ctx, "No teams in watchlist. Run /soccer:add.", "warning");
       return;
     }
-    const rows = config.teams.map((team, index) => `${index + 1}. ${teamLabel(team)}${team.teamId === config.favoriteTeamId ? " (favorite)" : ""}`);
+    const rows = config.teams.map((team) => `- ${teamLabel(team)}${team.teamId === config.favoriteTeamId ? " (favorite)" : ""}`);
     showText(ctx, `Soccer watchlist:\n${rows.join("\n")}`);
     return;
   }
 
-  if (["add", "favorite", "fav"].includes(command)) {
-    const result = await teamFromArg(value, token);
-    if (result.candidates) {
-      showText(ctx, formatCandidates(result.candidates, value), "warning");
-      return;
+  if (command === "add") {
+    let team: TeamRecord | undefined;
+    if (!value.trim()) {
+      team = (await pickTeam(ctx, token, { addOnly: true })) ?? undefined;
+    } else {
+      const result = await teamFromArg(value, token);
+      if (result.message && !result.team && !result.candidates) {
+        showText(ctx, result.message, "warning");
+        return;
+      }
+      if (result.candidates) {
+        showText(ctx, formatCandidates(result.candidates, value), "warning");
+        return;
+      }
+      team = result.team;
     }
-    if (!result.team) {
-      showText(ctx, result.message ?? "Team not found.", "warning");
-      return;
-    }
-    config = addTeam(config, result.team);
-    if (command === "favorite" || command === "fav") {
-      config.favoriteTeamId = result.team.teamId;
-    }
+    if (!team) return;
+    config = addTeam(config, team);
     writeConfig(config);
-    showText(ctx, `${command === "add" ? "Added" : "Favorite set"}: ${teamLabel(result.team)}`);
+    showText(ctx, `Added: ${teamLabel(team)}`);
     await syncData(config, token, { force: true });
     await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
     return;
   }
 
-  if (command === "remove" || command === "rm") {
-    const result = teamFromConfigArg(value, config);
-    const team = result.team;
-    if (result.candidates) {
-      showText(ctx, formatWatchlistCandidates(result.candidates, config, value), "warning");
-      return;
+  if (command === "favorite") {
+    let team: TeamRecord | undefined;
+    if (!value.trim()) {
+      team = (await pickWatchlistTeam(ctx, config, "Choose favorite team:")) ?? undefined;
+    } else {
+      const result = await teamFromArg(value, token);
+      if (result.message && !result.team && !result.candidates) {
+        showText(ctx, result.message, "warning");
+        return;
+      }
+      if (result.candidates) {
+        showText(ctx, formatCandidates(result.candidates, value), "warning");
+        return;
+      }
+      team = result.team;
     }
-    if (!team) {
-      showText(ctx, "Team not found in watchlist. Use /soccer:list.", "warning");
-      return;
+    if (!team) return;
+    config = addTeam(config, team);
+    config.favoriteTeamId = team.teamId;
+    writeConfig(config);
+    showText(ctx, `Favorite set: ${teamLabel(team)}`);
+    await syncData(config, token, { force: true });
+    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
+    return;
+  }
+
+  if (command === "remove") {
+    let team: TeamRecord | undefined;
+    if (!value.trim()) {
+      team = (await pickWatchlistTeam(ctx, config, "Remove team from watchlist:")) ?? undefined;
+    } else {
+      const result = teamFromConfigArg(value, config);
+      if (result.message && !result.team && !result.candidates) {
+        showText(ctx, result.message, "warning");
+        return;
+      }
+      if (result.candidates) {
+        showText(ctx, formatWatchlistCandidates(result.candidates, value), "warning");
+        return;
+      }
+      team = result.team;
     }
+    if (!team) return;
     writeConfig(removeTeam(config, team.teamId));
     showText(ctx, `Removed: ${teamLabel(team)}`);
     await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
     return;
   }
 
-  // Backward-compatible shorthand: /soccer Arsenal means set favorite if unambiguous.
-  const shorthand = trimmed;
-  const result = await teamFromArg(shorthand, token);
-  if (result.candidates) {
-    showText(ctx, formatCandidates(result.candidates, shorthand), "warning");
-    return;
-  }
-  if (!result.team) {
-    showText(ctx, result.message ?? `Unknown command: ${command}`, "warning");
-    return;
-  }
-  config = addTeam(config, result.team);
-  config.favoriteTeamId = result.team.teamId;
-  writeConfig(config);
-  showText(ctx, `Favorite set: ${teamLabel(result.team)}`);
-  await syncData(config, token, { force: true });
-  await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
-}
-
-function completionItem(value: string, description: string): { value: string; label: string; description: string } {
-  return { value, label: value, description };
-}
-
-function getSoccerCompletions(prefix: string): Array<{ value: string; label: string; description: string }> | null {
-  const text = String(prefix ?? "").trimStart();
-  const parts = text.split(/\s+/).filter(Boolean);
-  const command = (parts[0] ?? "").toLowerCase();
-
-  if (parts.length <= 1 && !text.endsWith(" ")) {
-    const items = COMMANDS
-      .filter(([cmd]) => cmd.startsWith(command))
-      .map(([cmd, desc]) => completionItem(cmd, desc));
-    return items.length ? items : null;
-  }
-
-  if (["favorite", "fav", "add"].includes(command)) {
-    const typed = parts[1] ?? "";
-    const items = (readSearchCache()?.results ?? [])
-      .map((team, index) => completionItem(`${command} ${index + 1}`, teamLabel(team)))
-      .filter((item) => item.value.startsWith(`${command} ${typed}`));
-    return items.length ? items : null;
-  }
-
-  if (["remove", "rm"].includes(command)) {
-    const typed = parts[1] ?? "";
-    const config = currentConfig ?? readConfig();
-    const items = config.teams
-      .map((team, index) => completionItem(`${command} ${index + 1}`, teamLabel(team)))
-      .filter((item) => item.value.startsWith(`${command} ${typed}`));
-    return items.length ? items : null;
-  }
-
-  return null;
+  showText(ctx, `Unknown command: ${command}`, "warning");
 }
 
 /** Starts a refresh interval bound to the current session and guards stale-context timer failures. */
@@ -1877,32 +1812,17 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
     clearRefreshTimer();
   });
 
-  pi.registerCommand("soccer", {
-    description: "Show soccer widget. Setup, sync, pick, and manage teams.",
-    getArgumentCompletions: getSoccerCompletions,
-    handler: async (args, ctx) => {
-      if (!ctx.hasUI) return;
-      await handleSoccerCommand(args, ctx);
-    },
-  });
-
-  for (const alias of COLON_COMMAND_ALIASES) {
-    pi.registerCommand(alias.name, {
-      description: `Soccer: ${alias.description}. Alias for /soccer:${alias.command}.`,
+  for (const cmd of COLON_COMMANDS) {
+    pi.registerCommand(cmd.name, {
+      description: cmd.description,
       handler: async (args, ctx) => {
         if (!ctx.hasUI) return;
-        const value = String(args ?? "").trim();
-        await handleSoccerCommand(value ? `${alias.command} ${value}` : alias.command, ctx);
-      },
-    });
-  }
-
-  for (const alias of WORLD_CUP_COMMAND_ALIASES) {
-    pi.registerCommand(alias.name, {
-      description: `Soccer: ${alias.description}.`,
-      handler: async (args, ctx) => {
-        if (!ctx.hasUI) return;
-        await handleWorldCupCommand(String(args ?? ""), ctx);
+        if (cmd.name === "soccer:worldcup") {
+          await handleWorldCupCommand(String(args ?? ""), ctx);
+          return;
+        }
+        const subcommand = cmd.name.slice("soccer:".length);
+        await handleSoccerCommand(subcommand, String(args ?? "").trim(), ctx);
       },
     });
   }
