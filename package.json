@@ -35,7 +35,8 @@
     "check": "npm test && npm pack --dry-run",
     "release:check": "node scripts/release-check.mjs",
     "prepack": "npm run build",
-    "test": "npm run build && node --test tests/*.test.mjs"
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "version:check": "node scripts/check-version-bump.mjs"
   },
   "engines": {
     "node": ">=20"
