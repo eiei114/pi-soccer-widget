@@ -1815,7 +1815,7 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
   for (const cmd of COLON_COMMANDS) {
     pi.registerCommand(cmd.name, {
       description: cmd.description,
-      handler: async (args, ctx) => {
+      handler: async (args: unknown, ctx: any) => {
         if (!ctx.hasUI) return;
         if (cmd.name === "soccer:worldcup") {
           await handleWorldCupCommand(String(args ?? ""), ctx);

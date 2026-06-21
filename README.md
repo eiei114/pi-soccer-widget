@@ -1,5 +1,6 @@
 # pi-soccer-widget
 
+[![CI](https://github.com/eiei114/pi-soccer-widget/actions/workflows/ci.yml/badge.svg)](https://github.com/eiei114/pi-soccer-widget/actions/workflows/ci.yml)
 [![Publish to npm](https://github.com/eiei114/pi-soccer-widget/actions/workflows/publish.yml/badge.svg)](https://github.com/eiei114/pi-soccer-widget/actions/workflows/publish.yml)
 [![Auto Release](https://github.com/eiei114/pi-soccer-widget/actions/workflows/auto-release.yml/badge.svg)](https://github.com/eiei114/pi-soccer-widget/actions/workflows/auto-release.yml)
 [![npm version](https://img.shields.io/npm/v/pi-soccer-widget)](https://www.npmjs.com/package/pi-soccer-widget)
