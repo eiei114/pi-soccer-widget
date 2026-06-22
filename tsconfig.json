@@ -10,7 +10,7 @@
                             "types":  [
                                           "node"
                                       ],
-                            "strict":  false,
+                            "strict":  true,
                             "declaration":  true,
                             "sourceMap":  true,
                             "outDir":  "dist",
