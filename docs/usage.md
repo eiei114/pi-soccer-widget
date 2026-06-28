@@ -95,6 +95,20 @@ Club mode shows the favorite when both a recent result and upcoming match exist.
 
 World Cup widget mode is opt-in when a club watchlist already exists, and automatic when no club favorite exists. It stays compact: followed-country score/next kickoff, goal scorers when available, group rank, notable red-card/penalty/shootout context, today's top matches when the followed country is inactive, and a cache/sync hint. Matchday refresh uses a shorter ~10 minute cadence and does not claim second-by-second live precision.
 
+## Optional Widget Host provider
+
+When `pi-widget-host` is active, Soccer participates through `pi-widget-core` only; it does not import or require Host directly. The provider id is `pi-soccer-widget`.
+
+Provider entries contain the same rendered lines as the standalone widget plus metadata for Host policy:
+
+- `tags`: always `sports`, plus `matchday` for active/near-term followed matches or `idle` otherwise
+- `priority`: tuned for a sports glance provider
+- `ttlMs`: aligned with Soccer's cache freshness (6 hours for club mode, 60 minutes or 10 minutes for World Cup matchday state)
+- `updatedAt`: derived from the normalized snapshot/cache timestamp
+- `mode`: `club` or `worldcup`
+
+While Host presence is active, Soccer clears its own top-level widget so Host can own the display. If Host presence later disappears, the latest Soccer lines are rendered standalone again without rerunning a command.
+
 ## Local files
 
 The extension stores lightweight local state under `~/.pi/agent/`:

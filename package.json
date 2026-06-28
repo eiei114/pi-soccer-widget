@@ -1,6 +1,6 @@
 {
   "name": "pi-soccer-widget",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Pi widget for tracking a favorite soccer team with standings, recent results, and upcoming matches.",
   "type": "module",
   "keywords": [
@@ -36,7 +36,8 @@
     "check": "npm test && npm pack --dry-run",
     "release:check": "node scripts/release-check.mjs",
     "prepack": "npm run build",
-    "test": "npm run build && node --test tests/*.test.mjs"
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "ci": "npm run typecheck && npm test && npm run release:check"
   },
   "engines": {
     "node": ">=20"
@@ -64,6 +65,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.78.0"
+    "@earendil-works/pi-ai": "^0.78.0",
+    "pi-widget-core": "^0.1.0"
   }
 }

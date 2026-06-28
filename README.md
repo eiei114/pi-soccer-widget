@@ -24,6 +24,7 @@ Pi extension that shows a compact soccer widget above the prompt editor for your
 - 6-hour sync cache with optional `/soccer:sync`
 - One compact widget at a time
 - Configurable league search scope via `PI_SOCCER_LEAGUES`
+- Optional `pi-widget-core` provider support for `pi-widget-host` display switching
 
 ## Install
 
@@ -85,6 +86,12 @@ Canonical commands (11 total):
 Omit the team name on `/soccer:add`, `/soccer:favorite`, or `/soccer:remove` to open a Pi UI picker. Pass a team name for fuzzy match; numeric IDs and cached search indexes are not supported.
 
 For World Cup menus, widget behavior, environment variables, and local file layout, see [docs/usage.md](./docs/usage.md). For sample widget output, see [docs/examples.md](./docs/examples.md).
+
+## Optional Widget Host support
+
+`pi-soccer-widget` is also a `pi-widget-core` provider. If `pi-widget-host` is installed and active in the same Pi process, Soccer publishes its rendered club/World Cup lines under provider id `pi-soccer-widget` with sports metadata and TTL. Host can select those lines for display, while Soccer suppresses its own standalone top-level widget to avoid duplicates.
+
+This support is optional: `pi-soccer-widget` does not depend on `pi-widget-host`, and standalone widget rendering resumes automatically when Host presence is not active.
 
 ## Package contents
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 - 2026-06-28
+
+### Added
+
+- Added optional `pi-widget-core` provider integration so `pi-widget-host` can discover Soccer rendered lines through the shared provider registry.
+- Added Host-aware display switching: Soccer suppresses its standalone top-level widget while Host is active and restores it when Host presence disappears.
+- Published sports metadata (`sports` + `matchday`/`idle`, priority, TTL, updated time, mode) alongside club and World Cup rendered state.
+
+### Changed
+
+- Added `npm run ci` for the project acceptance check path.
+
 ## 1.0.1 - 2026-06-03
 
 ### Changed

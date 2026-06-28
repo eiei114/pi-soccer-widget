@@ -61,6 +61,12 @@ const WORLD_CUP_REFRESH_MS = 10 * 60 * 1000;
 const SYNC_LOCK_MS = 5 * 60 * 1000;
 const DISCOVERY_TOP_N = 3;
 const WORLD_CUP_CODE = "WC";
+const PROVIDER_ID = WIDGET_ID;
+const PROVIDER_PRIORITY = 70;
+const PROVIDER_MATCHDAY_WINDOW_MS = 48 * 60 * 60 * 1000;
+const HOST_REGISTRY_SYMBOL = Symbol.for("pi-widget-host.registry.v1");
+const HOST_PRESENCE_SYMBOL = Symbol.for("pi-widget-host.presence.v1");
+const PROVIDER_CORE_MODULE = "pi-widget-core/provider";
 
 const COLON_COMMANDS = [
   { name: "soccer:setup", description: "guided API key + favorite team setup" },
@@ -87,6 +93,27 @@ const WORLD_CUP_MENU_ITEMS = [
 
 type Notify = (msg: string, level: "info" | "warning" | "error") => void;
 type SetWidget = (id: string, lines: string[] | undefined) => void;
+type WidgetSink = { setWidget: SetWidget };
+type ProviderEntry = {
+  providerId: string;
+  available: boolean;
+  lines: string[];
+  updatedAt: string;
+  priority?: number;
+  tags?: string[];
+  mode?: string;
+  ttlMs?: number;
+};
+type ProviderRuntimeUpdate = Omit<ProviderEntry, "providerId"> & { providerId?: string };
+type ProviderRuntime = {
+  update: (entry: ProviderRuntimeUpdate) => ProviderEntry;
+  stop: () => void;
+  getMode: () => "host-owned" | "standalone";
+  isHostPresent: () => boolean;
+};
+type ProviderRuntimeModule = {
+  createProviderRuntime: (options: { providerId: string; widgetId?: string; sink?: WidgetSink }) => ProviderRuntime;
+};
 type Theme = {
   fg: (color: "accent" | "dim" | "muted" | "success" | "error", text: string) => string;
 };
@@ -237,6 +264,28 @@ interface WorldCupSnapshot {
   topScorersAvailable: boolean;
 }
 
+type RegistryListener = () => void;
+type PresenceListener = (active: boolean) => void;
+
+interface WidgetHostRegistry {
+  version: 1;
+  set: (entry: ProviderEntry) => void;
+  remove: (providerId: string) => void;
+  list: () => ProviderEntry[];
+  subscribe: (listener: RegistryListener) => () => void;
+  clear: () => void;
+}
+
+interface HostPresenceStore {
+  active: boolean;
+  listeners: Set<PresenceListener>;
+}
+
+interface DisplayController {
+  setWidget: SetWidget;
+  stop: () => void;
+}
+
 type NationalTeamSeed = {
   countryCode: string;
   teamId: number;
@@ -326,6 +375,8 @@ const TIME_ZONE_TO_WORLD_CUP_CODE: Record<string, string> = {
 let currentConfig: SoccerConfig | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let currentRefreshIntervalMs: number | null = null;
+let activeDisplayController: DisplayController | null = null;
+let displayControllerGeneration = 0;
 
 /** Clears the active widget refresh interval so it cannot reuse an old Pi extension context. */
 function clearRefreshTimer(): void {
@@ -475,6 +526,250 @@ function readSnapshotCache(): SnapshotCache {
 
 function writeSnapshotCache(cache: SnapshotCache): void {
   writeJson(SNAPSHOT_CACHE_FILE, cache);
+}
+
+function normalizeProviderDate(value: unknown): string {
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return nowIso();
+  return date.toISOString();
+}
+
+function normalizeProviderEntry(entry: ProviderEntry): ProviderEntry {
+  const providerId = String(entry.providerId ?? "").trim();
+  if (!providerId) throw new Error("providerId is required");
+  const tags = Array.isArray(entry.tags)
+    ? [...new Set(entry.tags.map((tag) => String(tag).trim()).filter(Boolean))]
+    : undefined;
+
+  return {
+    providerId,
+    available: entry.available === true,
+    lines: Array.isArray(entry.lines) ? entry.lines.map((line) => String(line)) : [],
+    updatedAt: normalizeProviderDate(entry.updatedAt),
+    priority: Number.isFinite(entry.priority) ? entry.priority : 0,
+    tags: tags?.length ? tags : undefined,
+    mode: typeof entry.mode === "string" && entry.mode.trim() ? entry.mode.trim() : undefined,
+    ttlMs: Number.isFinite(entry.ttlMs) && (entry.ttlMs ?? 0) > 0 ? entry.ttlMs : undefined,
+  };
+}
+
+function getHostRegistry(): WidgetHostRegistry {
+  const root = globalThis as typeof globalThis & Record<symbol, WidgetHostRegistry | undefined>;
+  const existing = root[HOST_REGISTRY_SYMBOL];
+  if (existing) return existing;
+
+  const entries = new Map<string, ProviderEntry>();
+  const listeners = new Set<RegistryListener>();
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
+
+  const registry: WidgetHostRegistry = {
+    version: 1,
+    set(entry) {
+      const normalized = normalizeProviderEntry(entry);
+      const previous = entries.get(normalized.providerId);
+      if (JSON.stringify(previous) === JSON.stringify(normalized)) return;
+      entries.set(normalized.providerId, normalized);
+      notify();
+    },
+    remove(providerId) {
+      if (!entries.delete(String(providerId))) return;
+      notify();
+    },
+    list() {
+      return [...entries.values()].map((entry) => ({
+        ...entry,
+        lines: [...entry.lines],
+        tags: entry.tags ? [...entry.tags] : undefined,
+      }));
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    clear() {
+      if (entries.size === 0) return;
+      entries.clear();
+      notify();
+    },
+  };
+  root[HOST_REGISTRY_SYMBOL] = registry;
+  return registry;
+}
+
+function getHostPresenceStore(): HostPresenceStore {
+  const root = globalThis as typeof globalThis & Record<symbol, HostPresenceStore | undefined>;
+  const existing = root[HOST_PRESENCE_SYMBOL];
+  if (existing) return existing;
+  const store: HostPresenceStore = { active: false, listeners: new Set<PresenceListener>() };
+  root[HOST_PRESENCE_SYMBOL] = store;
+  return store;
+}
+
+function subscribeToCompatibleHostPresence(listener: PresenceListener): () => void {
+  const store = getHostPresenceStore();
+  store.listeners.add(listener);
+  return () => {
+    store.listeners.delete(listener);
+  };
+}
+
+function createCompatibleProviderRuntime(options: { providerId: string; widgetId?: string; sink?: WidgetSink }): ProviderRuntime {
+  const providerId = options.providerId.trim();
+  let hostPresent = getHostPresenceStore().active;
+  let latest: ProviderEntry | undefined;
+  let stopped = false;
+
+  const renderStandalone = () => {
+    if (!options.widgetId || !options.sink) return;
+    const visible = latest && latest.available && latest.lines.length > 0 ? latest.lines : undefined;
+    options.sink.setWidget(options.widgetId, visible);
+  };
+  const clearStandalone = () => {
+    if (options.widgetId && options.sink) options.sink.setWidget(options.widgetId, undefined);
+  };
+  const applyState = () => {
+    if (stopped) return;
+    if (hostPresent) {
+      clearStandalone();
+      if (latest) getHostRegistry().set(latest);
+      else getHostRegistry().remove(providerId);
+      return;
+    }
+    getHostRegistry().remove(providerId);
+    renderStandalone();
+  };
+
+  const disposePresence = subscribeToCompatibleHostPresence((active) => {
+    hostPresent = active;
+    applyState();
+  });
+  applyState();
+
+  return {
+    update(entry) {
+      if (stopped) throw new Error(`Provider runtime for ${providerId} is stopped`);
+      const overrideId = entry.providerId?.trim();
+      if (overrideId && overrideId !== providerId) {
+        throw new Error(`Provider runtime mismatch: expected ${providerId}, received ${overrideId}`);
+      }
+      latest = normalizeProviderEntry({ ...entry, providerId });
+      applyState();
+      return latest;
+    },
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      disposePresence();
+      getHostRegistry().remove(providerId);
+      clearStandalone();
+    },
+    getMode() {
+      return hostPresent ? "host-owned" : "standalone";
+    },
+    isHostPresent() {
+      return hostPresent;
+    },
+  };
+}
+
+async function loadProviderRuntimeModule(): Promise<ProviderRuntimeModule | null> {
+  try {
+    return (await import(PROVIDER_CORE_MODULE)) as ProviderRuntimeModule;
+  } catch {
+    return null;
+  }
+}
+
+function parseTimestamp(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function providerTimestamp(config: SoccerConfig, cache: SnapshotCache): number {
+  if (shouldUseWorldCupWidget(config) && cache.worldCup) {
+    return cache.worldCup.fetchedAt || cache.worldCup.timestamp || Date.now();
+  }
+  const snapshot = chooseSnapshot(config, cache);
+  return snapshot?.fetchedAt ?? (cache.timestamp || parseTimestamp(config.updatedAt) || Date.now());
+}
+
+function dateWithinWindow(utcDate: string | undefined, beforeMs = 12 * 60 * 60 * 1000, afterMs = PROVIDER_MATCHDAY_WINDOW_MS): boolean {
+  if (!utcDate) return false;
+  const timestamp = Date.parse(utcDate);
+  if (!Number.isFinite(timestamp)) return false;
+  const delta = timestamp - Date.now();
+  return delta >= -beforeMs && delta <= afterMs;
+}
+
+function hasClubMatchday(snapshot: TeamSnapshot | null): boolean {
+  if (!snapshot) return false;
+  return dateWithinWindow(snapshot.nextMatch?.utcDate) || dateWithinWindow(snapshot.lastResult?.utcDate, 24 * 60 * 60 * 1000, 0);
+}
+
+function hasWorldCupMatchday(snapshot: WorldCupSnapshot | undefined): boolean {
+  if (!snapshot) return false;
+  return snapshot.matches.some((match) => {
+    const followedMatch = sameWorldCupTeam(match.homeTeam, snapshot.team) || sameWorldCupTeam(match.awayTeam, snapshot.team);
+    return followedMatch && (activeMatch(match) || todayMatch(match) || dateWithinWindow(match.utcDate));
+  });
+}
+
+function providerTtlMs(config: SoccerConfig, cache: SnapshotCache): number {
+  if (shouldUseWorldCupWidget(config)) {
+    return hasWorldCupMatchday(cache.worldCup) ? WORLD_CUP_MATCHDAY_TTL_MS : WORLD_CUP_SNAPSHOT_TTL_MS;
+  }
+  return SNAPSHOT_TTL_MS;
+}
+
+function providerTags(config: SoccerConfig, cache: SnapshotCache): string[] {
+  const matchday = shouldUseWorldCupWidget(config)
+    ? hasWorldCupMatchday(cache.worldCup)
+    : hasClubMatchday(chooseSnapshot(config, cache));
+  return ["sports", matchday ? "matchday" : "idle"];
+}
+
+function buildProviderUpdate(lines: string[] | undefined): ProviderRuntimeUpdate {
+  const config = currentConfig ?? readConfig();
+  const cache = readSnapshotCache();
+  return {
+    available: Array.isArray(lines) && lines.length > 0,
+    lines: lines ?? [],
+    updatedAt: new Date(providerTimestamp(config, cache)).toISOString(),
+    priority: PROVIDER_PRIORITY,
+    tags: providerTags(config, cache),
+    mode: shouldUseWorldCupWidget(config) ? "worldcup" : "club",
+    ttlMs: providerTtlMs(config, cache),
+  };
+}
+
+async function createDisplayController(sink: WidgetSink): Promise<DisplayController> {
+  const providerModule = await loadProviderRuntimeModule();
+  const runtime = providerModule?.createProviderRuntime({ providerId: PROVIDER_ID, widgetId: WIDGET_ID, sink })
+    ?? createCompatibleProviderRuntime({ providerId: PROVIDER_ID, widgetId: WIDGET_ID, sink });
+  return {
+    setWidget(id, lines) {
+      if (id !== WIDGET_ID) {
+        sink.setWidget(id, lines);
+        return;
+      }
+      runtime.update(buildProviderUpdate(lines));
+    },
+    stop() {
+      runtime.stop();
+    },
+  };
+}
+
+function widgetSetterForContext(ctx: any): SetWidget {
+  return activeDisplayController?.setWidget ?? ((id, lines) => ctx.ui.setWidget(id, lines));
 }
 
 function readStoredToken(): string | undefined {
@@ -1548,8 +1843,8 @@ async function showWorldCupMenu(ctx: any, config: SoccerConfig): Promise<void> {
       writeConfig(next);
       currentConfig = next;
       showText(ctx, `World Cup default widget: ${choice === "Use World Cup widget" ? "World Cup" : "club"}`);
-      resetRefreshTimer(ctx);
-      await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme, { forceSync: false });
+      resetRefreshTimer(ctx, widgetSetterForContext(ctx));
+      await refreshWidget(widgetSetterForContext(ctx), ctx.ui.theme, { forceSync: false });
       return;
     }
     showText(ctx, `World Cup settings:\nFollowed country: ${current ? nationalTeamLabel(current) : "not set"}\nDefault widget: ${mode}`);
@@ -1612,14 +1907,14 @@ async function handleSoccerCommand(command: string, value: string, ctx: any): Pr
     }
     writeStoredToken(apiKey);
     showText(ctx, "Saved Football-data API key for pi-soccer-widget. The key was handled by the extension UI and not sent to the model.");
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
+    await refreshWidget(widgetSetterForContext(ctx), theme);
     return;
   }
 
   if (command === "logout") {
     removeStoredToken();
     showText(ctx, "Removed stored pi-soccer-widget API key. Environment variables are unchanged.");
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
+    await refreshWidget(widgetSetterForContext(ctx), theme);
     return;
   }
 
@@ -1632,7 +1927,7 @@ async function handleSoccerCommand(command: string, value: string, ctx: any): Pr
 
   if (!token) {
     showText(ctx, "Football-data API key is not set. Run /soccer:setup.", "warning");
-    ctx.ui.setWidget(WIDGET_ID, renderNoToken(theme));
+    widgetSetterForContext(ctx)(WIDGET_ID, renderNoToken(theme));
     return;
   }
 
@@ -1646,14 +1941,14 @@ async function handleSoccerCommand(command: string, value: string, ctx: any): Pr
     writeConfig(config);
     await syncData(config, token, { force: true });
     showText(ctx, `Favorite set: ${teamLabel(picked)}`);
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
+    await refreshWidget(widgetSetterForContext(ctx), theme);
     return;
   }
 
   if (command === "sync") {
     const cache = await syncData(config, token, { force: true });
     showText(ctx, `Soccer data synced. Discovery league: ${cache.discoveryLeagueCode ?? "none"}`);
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
+    await refreshWidget(widgetSetterForContext(ctx), theme);
     return;
   }
 
@@ -1698,7 +1993,7 @@ async function handleSoccerCommand(command: string, value: string, ctx: any): Pr
     writeConfig(config);
     showText(ctx, `Added: ${teamLabel(team)}`);
     await syncData(config, token, { force: true });
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
+    await refreshWidget(widgetSetterForContext(ctx), theme);
     return;
   }
 
@@ -1724,7 +2019,7 @@ async function handleSoccerCommand(command: string, value: string, ctx: any): Pr
     writeConfig(config);
     showText(ctx, `Favorite set: ${teamLabel(team)}`);
     await syncData(config, token, { force: true });
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
+    await refreshWidget(widgetSetterForContext(ctx), theme);
     return;
   }
 
@@ -1747,7 +2042,7 @@ async function handleSoccerCommand(command: string, value: string, ctx: any): Pr
     if (!team) return;
     writeConfig(removeTeam(config, team.teamId));
     showText(ctx, `Removed: ${teamLabel(team)}`);
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), theme);
+    await refreshWidget(widgetSetterForContext(ctx), theme);
     return;
   }
 
@@ -1755,16 +2050,16 @@ async function handleSoccerCommand(command: string, value: string, ctx: any): Pr
 }
 
 /** Starts a refresh interval bound to the current session and guards stale-context timer failures. */
-function resetRefreshTimer(ctx: any): void {
+function resetRefreshTimer(ctx: any, setWidget: SetWidget): void {
   clearRefreshTimer();
   const intervalMs = shouldUseWorldCupWidget(currentConfig ?? readConfig()) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
   currentRefreshIntervalMs = intervalMs;
   refreshTimer = setInterval(() => {
     void (async () => {
       const ui = ctx.ui;
-      await refreshWidget((id, lines) => ui.setWidget(id, lines), ui.theme);
+      await refreshWidget(setWidget, ui.theme);
       const nextIntervalMs = shouldUseWorldCupWidget(currentConfig ?? readConfig()) ? WORLD_CUP_REFRESH_MS : SNAPSHOT_TTL_MS;
-      if (nextIntervalMs !== currentRefreshIntervalMs) resetRefreshTimer(ctx);
+      if (nextIntervalMs !== currentRefreshIntervalMs) resetRefreshTimer(ctx, setWidget);
     })().catch((error) => {
       if (isStaleContextError(error)) {
         clearRefreshTimer();
@@ -1782,6 +2077,8 @@ function resetRefreshTimer(ctx: any): void {
 }
 
 export const __testing = {
+  buildProviderUpdate,
+  createCompatibleProviderRuntime,
   editDistance,
   findNationalTeams,
   followedWorldCupTeam,
@@ -1803,13 +2100,37 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
     if (!ctx.hasUI) return;
 
     currentConfig = readConfig();
-    await refreshWidget((id, lines) => ctx.ui.setWidget(id, lines), ctx.ui.theme);
+    const generation = ++displayControllerGeneration;
+    activeDisplayController?.stop();
+    activeDisplayController = null;
 
-    resetRefreshTimer(ctx);
+    const displayController = await createDisplayController({
+      setWidget: (id, lines) => {
+        if (generation === displayControllerGeneration) ctx.ui.setWidget(id, lines);
+      },
+    });
+    if (generation !== displayControllerGeneration) {
+      displayController.stop();
+      return;
+    }
+
+    activeDisplayController = displayController;
+    await refreshWidget(displayController.setWidget, ctx.ui.theme);
+
+    if (generation !== displayControllerGeneration) {
+      displayController.stop();
+      if (activeDisplayController === displayController) activeDisplayController = null;
+      return;
+    }
+
+    resetRefreshTimer(ctx, displayController.setWidget);
   });
 
   pi.on("session_shutdown", () => {
+    displayControllerGeneration++;
     clearRefreshTimer();
+    activeDisplayController?.stop();
+    activeDisplayController = null;
   });
 
   for (const cmd of COLON_COMMANDS) {
