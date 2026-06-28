@@ -10,6 +10,8 @@ const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
 const originalToken = process.env.FOOTBALL_DATA_API_TOKEN;
 const originalLeagues = process.env.PI_SOCCER_LEAGUES;
+const registrySymbol = Symbol.for("pi-widget-host.registry.v1");
+const presenceSymbol = Symbol.for("pi-widget-host.presence.v1");
 
 let testRun = 0;
 let testHome;
@@ -27,6 +29,7 @@ function restoreEnv(name, value) {
 }
 
 beforeEach(async () => {
+  resetHostGlobals();
   testHome = mkdtempSync(join(tmpdir(), "pi-soccer-widget-"));
   process.env.HOME = testHome;
   process.env.USERPROFILE = testHome;
@@ -53,6 +56,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   rmSync(testHome, { recursive: true, force: true });
+  resetHostGlobals();
   globalThis.fetch = originalFetch;
   restoreEnv("HOME", originalHome);
   restoreEnv("USERPROFILE", originalUserProfile);
@@ -63,6 +67,47 @@ afterEach(() => {
 const theme = {
   fg: (_color, text) => text,
 };
+
+function resetHostGlobals() {
+  delete globalThis[registrySymbol];
+  delete globalThis[presenceSymbol];
+}
+
+function activateWidgetHost() {
+  const entries = new Map();
+  const registryListeners = new Set();
+  const presence = { active: true, listeners: new Set() };
+  globalThis[presenceSymbol] = presence;
+  globalThis[registrySymbol] = {
+    version: 1,
+    set(entry) {
+      entries.set(entry.providerId, { ...entry, lines: [...entry.lines], tags: entry.tags ? [...entry.tags] : undefined });
+      for (const listener of registryListeners) listener();
+    },
+    remove(providerId) {
+      entries.delete(providerId);
+      for (const listener of registryListeners) listener();
+    },
+    list() {
+      return [...entries.values()];
+    },
+    subscribe(listener) {
+      registryListeners.add(listener);
+      return () => registryListeners.delete(listener);
+    },
+    clear() {
+      entries.clear();
+      for (const listener of registryListeners) listener();
+    },
+  };
+  return {
+    entries,
+    setPresence(active) {
+      presence.active = active;
+      for (const listener of presence.listeners) listener(active);
+    },
+  };
+}
 
 function writeJson(file, value) {
   mkdirSync(agentDir, { recursive: true });
@@ -127,6 +172,32 @@ function seedStaleCache(record) {
     snapshots: { [String(record.teamId)]: snapshot(record) },
   });
 }
+
+test("publishes Soccer lines through Widget Host provider presence and restores standalone display", async () => {
+  const host = activateWidgetHost();
+  const arsenal = team(57, "Arsenal");
+  seedStaleCache(arsenal);
+  const cache = readJson(snapshotsFile);
+  cache.snapshots[String(arsenal.teamId)].nextMatch.utcDate = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  writeJson(snapshotsFile, cache);
+  globalThis.fetch = async () => response(500, { message: "server error" });
+
+  const { widgets } = await startSession();
+  const entry = host.entries.get("pi-soccer-widget");
+
+  assert.equal(widgets.at(-1)?.id, "pi-soccer-widget");
+  assert.equal(widgets.at(-1)?.lines, undefined);
+  assert.ok(entry, "provider entry should be published while host owns display");
+  assert.match(entry.lines.join("\n"), /Soccer: Arsenal \| PL/);
+  assert.deepEqual(entry.tags, ["sports", "matchday"]);
+  assert.equal(entry.priority, 70);
+  assert.equal(entry.ttlMs, 6 * 60 * 60 * 1000);
+  assert.equal(entry.mode, "club");
+
+  host.setPresence(false);
+  assert.equal(host.entries.has("pi-soccer-widget"), false);
+  assert.match((widgets.at(-1)?.lines ?? []).join("\n"), /Soccer: Arsenal \| PL/);
+});
 
 async function startSession() {
   const widgets = [];
