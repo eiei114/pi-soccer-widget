@@ -376,6 +376,7 @@ let currentConfig: SoccerConfig | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let currentRefreshIntervalMs: number | null = null;
 let activeDisplayController: DisplayController | null = null;
+let displayControllerGeneration = 0;
 
 /** Clears the active widget refresh interval so it cannot reuse an old Pi extension context. */
 function clearRefreshTimer(): void {
@@ -2099,14 +2100,34 @@ export default function soccerWidgetExtension(pi: ExtensionAPI) {
     if (!ctx.hasUI) return;
 
     currentConfig = readConfig();
+    const generation = ++displayControllerGeneration;
     activeDisplayController?.stop();
-    activeDisplayController = await createDisplayController({ setWidget: (id, lines) => ctx.ui.setWidget(id, lines) });
-    await refreshWidget(activeDisplayController.setWidget, ctx.ui.theme);
+    activeDisplayController = null;
 
-    resetRefreshTimer(ctx, activeDisplayController.setWidget);
+    const displayController = await createDisplayController({
+      setWidget: (id, lines) => {
+        if (generation === displayControllerGeneration) ctx.ui.setWidget(id, lines);
+      },
+    });
+    if (generation !== displayControllerGeneration) {
+      displayController.stop();
+      return;
+    }
+
+    activeDisplayController = displayController;
+    await refreshWidget(displayController.setWidget, ctx.ui.theme);
+
+    if (generation !== displayControllerGeneration) {
+      displayController.stop();
+      if (activeDisplayController === displayController) activeDisplayController = null;
+      return;
+    }
+
+    resetRefreshTimer(ctx, displayController.setWidget);
   });
 
   pi.on("session_shutdown", () => {
+    displayControllerGeneration++;
     clearRefreshTimer();
     activeDisplayController?.stop();
     activeDisplayController = null;

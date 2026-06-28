@@ -192,11 +192,34 @@ test("publishes Soccer lines through Widget Host provider presence and restores 
   assert.deepEqual(entry.tags, ["sports", "matchday"]);
   assert.equal(entry.priority, 70);
   assert.equal(entry.ttlMs, 6 * 60 * 60 * 1000);
+  assert.ok(!Number.isNaN(Date.parse(entry.updatedAt)), "provider entry should include a valid updatedAt for host expiry");
   assert.equal(entry.mode, "club");
 
   host.setPresence(false);
   assert.equal(host.entries.has("pi-soccer-widget"), false);
   assert.match((widgets.at(-1)?.lines ?? []).join("\n"), /Soccer: Arsenal \| PL/);
+});
+
+test("session start skips async display controller if shutdown wins the race", async () => {
+  seedStaleCache(team(57, "Arsenal"));
+  globalThis.fetch = async () => response(500, { message: "server error" });
+  const widgets = [];
+  const ctx = {
+    hasUI: true,
+    ui: {
+      theme,
+      setWidget(id, lines) {
+        widgets.push({ id, lines });
+      },
+      notify() {},
+    },
+  };
+
+  const start = registered.events.session_start({}, ctx);
+  await registered.events.session_shutdown({ type: "session_shutdown", reason: "reload" }, {});
+  await start;
+
+  assert.deepEqual(widgets, []);
 });
 
 async function startSession() {
