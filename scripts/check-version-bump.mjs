@@ -15,7 +15,7 @@
  *   BASE_REF=origin/main node scripts/check-version-bump.mjs
  *   ALLOW_MAJOR_VERSION_BUMP=1 BASE_REF=origin/main node scripts/check-version-bump.mjs
  */
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
 const TEMPLATE_DEFAULT = [
@@ -32,8 +32,24 @@ const TEMPLATE_DEFAULT = [
   "package.json",
 ];
 
-function run(cmd) {
-  return execSync(cmd, { encoding: "utf8" }).trim();
+const SAFE_GIT_REF_RE = /^[A-Za-z0-9._/-]+$/;
+
+function normalizeGitRef(ref, name = "git ref") {
+  const value = String(ref ?? "").trim();
+  if (
+    !value ||
+    value.startsWith("-") ||
+    value.includes("..") ||
+    value.includes("@{") ||
+    !SAFE_GIT_REF_RE.test(value)
+  ) {
+    throw new Error(`${name} contains unsupported characters: ${ref}`);
+  }
+  return value;
+}
+
+function runGit(args) {
+  return execFileSync("git", args, { encoding: "utf8" }).trim();
 }
 
 function parseSemver(v) {
@@ -42,23 +58,26 @@ function parseSemver(v) {
   return [Number(m[1]), Number(m[2]), Number(m[3])];
 }
 
+function getSemverParts(v, name = "version") {
+  const parts = parseSemver(v);
+  if (!parts) {
+    throw new Error(`${name} must be valid semver (received ${JSON.stringify(v)})`);
+  }
+  return parts;
+}
+
 function compareSemver(a, b) {
-  const va = parseSemver(a);
-  const vb = parseSemver(b);
-  if (!va || !vb) return 0;
+  const va = getSemverParts(a, "head package.json version");
+  const vb = getSemverParts(b, "base package.json version");
   for (let i = 0; i < 3; i++) {
     if (va[i] !== vb[i]) return va[i] - vb[i];
   }
   return 0;
 }
 
-function getSemverParts(v) {
-  return parseSemver(v) ?? [0, 0, 0];
-}
-
 function isMajorBump(baseVersion, headVersion) {
-  const [baseMajor] = getSemverParts(baseVersion);
-  const [headMajor] = getSemverParts(headVersion);
+  const [baseMajor] = getSemverParts(baseVersion, "base package.json version");
+  const [headMajor] = getSemverParts(headVersion, "head package.json version");
   return headMajor > baseMajor;
 }
 
@@ -69,23 +88,23 @@ function hasMajorApproval() {
   try {
     const event = JSON.parse(readFileSync(eventPath, "utf8"));
     const pr = event.pull_request ?? {};
-    const haystack = `${pr.title ?? ""}
-${pr.body ?? ""}`.toLowerCase();
-    return haystack.includes("major-approved");
+    return (pr.labels ?? []).some(
+      (label) => String(label.name ?? "").toLowerCase() === "major-approved",
+    );
   } catch {
     return false;
   }
 }
 
-function readPackageVersion(ref) {
-  const raw = run(`git show ${ref}:package.json`);
-  return JSON.parse(raw).version;
+function readPackageAtRef(ref) {
+  const safeRef = normalizeGitRef(ref);
+  return JSON.parse(runGit(["show", `${safeRef}:package.json`]));
 }
 
-function loadPublishablePaths() {
+function loadPublishablePaths(...packages) {
   const paths = new Set(TEMPLATE_DEFAULT);
-  try {
-    const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  for (const pkg of packages) {
+    if (!pkg) continue;
     for (const entry of pkg.files ?? []) {
       paths.add(String(entry).replace(/^\.\//, ""));
     }
@@ -94,10 +113,8 @@ function loadPublishablePaths() {
         paths.add(ext.replace(/^\.\//, ""));
       }
     }
-    if (existsSync("index.ts")) paths.add("index.ts");
-  } catch {
-    // keep template defaults
   }
+  if (existsSync("index.ts")) paths.add("index.ts");
   return [...paths];
 }
 
@@ -107,22 +124,54 @@ function isPublishablePath(file, publishable) {
   );
 }
 
-const baseRef = process.env.BASE_REF ?? "origin/main";
-const publishable = loadPublishablePaths();
+const hasExplicitBaseRef = Boolean(process.env.BASE_REF);
+let baseRef;
+
+try {
+  baseRef = normalizeGitRef(process.env.BASE_REF ?? "origin/main", "BASE_REF");
+} catch (error) {
+  console.error(`version:check fail ? ${error.message}.`);
+  process.exit(1);
+}
 
 let changed;
+let basePackage;
+
 try {
-  run(`git rev-parse --verify ${baseRef}`);
-  changed = run(`git diff --name-only ${baseRef}...HEAD`).split("\n").filter(Boolean);
-} catch {
+  runGit(["rev-parse", "--verify", baseRef]);
+} catch (error) {
+  if (hasExplicitBaseRef) {
+    console.error(`version:check fail ? base ref is not available: ${error.message}`);
+    process.exit(1);
+  }
   console.log("version:check skip ? base ref not available (local run?)");
   process.exit(0);
 }
 
+try {
+  changed = runGit(["diff", "--name-only", `${baseRef}...HEAD`])
+    .split("\n")
+    .filter(Boolean);
+  basePackage = readPackageAtRef(baseRef);
+} catch (error) {
+  console.error(`version:check fail ? git comparison failed: ${error.message}`);
+  process.exit(1);
+}
+
+const headPackage = JSON.parse(readFileSync("package.json", "utf8"));
+const publishable = loadPublishablePaths(basePackage, headPackage);
+
 const publishableChanged = changed.some((f) => isPublishablePath(f, publishable));
-const baseVersion = readPackageVersion(baseRef);
-const headVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
-const versionDelta = compareSemver(headVersion, baseVersion);
+const baseVersion = basePackage.version;
+const headVersion = headPackage.version;
+let versionDelta;
+
+try {
+  versionDelta = compareSemver(headVersion, baseVersion);
+} catch (error) {
+  console.error(`version:check fail ? ${error.message}.`);
+  process.exit(1);
+}
 
 if (versionDelta < 0) {
   console.error(
@@ -144,7 +193,7 @@ if (versionDelta === 0) {
 
 if (isMajorBump(baseVersion, headVersion) && !hasMajorApproval()) {
   console.error(
-    "version:check fail ? major version bump requires explicit human approval. Add 'major-approved' to the PR title/body or rerun locally with ALLOW_MAJOR_VERSION_BUMP=1.",
+    "version:check fail ? major version bump requires explicit human approval. Apply the 'major-approved' PR label or rerun locally with ALLOW_MAJOR_VERSION_BUMP=1.",
   );
   process.exit(1);
 }
