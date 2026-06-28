@@ -37,7 +37,8 @@
     "release:check": "node scripts/release-check.mjs",
     "prepack": "npm run build",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "ci": "npm run typecheck && npm test && npm run release:check"
+    "ci": "npm run typecheck && npm test && npm run release:check",
+    "version:check": "node scripts/check-version-bump.mjs"
   },
   "engines": {
     "node": ">=20"
