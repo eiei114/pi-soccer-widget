@@ -1,9 +1,39 @@
 # pi-soccer-widget: Maintenance Health Check Report
 
-**Date**: 2026-07-02
+**Date**: 2026-07-02 (initial), re-verified 2026-07-03 (DOT-521)
 **Repository**: https://github.com/eiei114/pi-soccer-widget
 **Version**: 1.1.0
-**Last commit**: 2026-05-31 (33 days without activity)
+**Multica Issue**: DOT-521
+
+## DOT-521 Re-verification Summary (2026-07-03)
+
+Follow-up maintenance pass after PR #22 landed. Confirms the baseline is healthy and closes remaining low-risk gaps.
+
+| Check | Result |
+|-------|--------|
+| `npm test` | ✅ 26/26 passing |
+| `npm run ci` | ✅ Passes locally |
+| Package completeness | ✅ All template files present (added in PR #22) |
+| Branch `feat/ucl-prediction-ai` | ✅ Merged to `main` via PR #15 (2026-05-30); no abandoned work |
+| Dependabot | ⚠️ Missing → added in this PR |
+| npm audit | ⚠️ 1 moderate (`protobufjs`) → fixed in this PR |
+| Follow-up issue #23 | ✅ Open for command-handler test coverage |
+
+### Fixes in this PR (DOT-521)
+
+- Add `.github/dependabot.yml` for npm and GitHub Actions
+- Run `npm audit fix` to resolve transitive `protobufjs` advisory
+
+### Remaining gaps (follow-up issues filed)
+
+- GitHub Actions in `publish.yml` and `auto-release.yml` still use floating `@v4` tags instead of commit SHAs (supply-chain hardening)
+- Command handler and integration test coverage (tracked in #23)
+
+---
+
+## Original Health Check (2026-07-02)
+
+**Last commit at time of initial check**: 2026-05-31 (33 days without activity)
 
 ## 1. Package Completeness
 
