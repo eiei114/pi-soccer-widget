@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.1 - 2026-07-04
+
+### Changed
+
+- Bumped `@earendil-works/pi-ai` from 0.78.0 to 0.80.3.
+- Bumped `@types/node` from 25.9.1 to 26.1.0.
+- Bumped GitHub Actions `actions/checkout` from v4/v6 to v7 and `actions/setup-node` from v4 to v6.
+- Removed `/soccer:champions`, `/soccer:ucl`, and `/ucl:prediction-ai` commands after the Champions League final event window to simplify widget refresh behavior.
+
 ## 1.1.0 - 2026-06-28
 
 ### Added
@@ -28,16 +37,6 @@
 - Removed legacy `/soccer` space-separated subcommands, aliases (`soccer:wc`, `soccer:fav`, `soccer:rm`, `soccer:get-key`, `soccer:pick`), team shorthand (`/soccer Arsenal`), and numeric/cache-index team selection.
 - `/soccer:add`, `/soccer:favorite`, and `/soccer:remove` without arguments open a Pi UI picker; pass a team name for fuzzy match instead of a number.
 - Removed search-result cache file (`pi-soccer-widget-search.json`) and tab completion for cached numeric picks.
-
-## Unreleased
-
-### Changed
-
-- Bumped `@earendil-works/pi-ai` from 0.78.0 to 0.80.3.
-- Bumped `@types/node` from 25.9.1 to 26.1.0.
-- Bumped GitHub Actions `actions/checkout` from v4/v6 to v7 and `actions/setup-node` from v4 to v6.
-
-- Removed `/soccer:champions`, `/soccer:ucl`, and `/ucl:prediction-ai` commands after the Champions League final event window to simplify widget refresh behavior.
 
 ## 0.4.0 - 2026-05-30
 
