@@ -4,6 +4,8 @@ Pi Coding Agent extension that shows a soccer widget above the prompt editor.
 
 The widget prioritizes your favorite club, but can rotate to watchlist teams when the favorite has thin off-season data.
 
+<a href="https://buymeacoffee.com/ekawano114m"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="217" height="60"></a>
+
 ## Features
 
 - Favorite team first
