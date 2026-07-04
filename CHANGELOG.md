@@ -31,6 +31,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Bumped `@earendil-works/pi-ai` from 0.78.0 to 0.80.3.
+- Bumped `@types/node` from 25.9.1 to 26.1.0.
+- Bumped GitHub Actions `actions/checkout` from v4/v6 to v7 and `actions/setup-node` from v4 to v6.
+
 - Removed `/soccer:champions`, `/soccer:ucl`, and `/ucl:prediction-ai` commands after the Champions League final event window to simplify widget refresh behavior.
 
 ## 0.4.0 - 2026-05-30
