@@ -31,6 +31,8 @@
 
 ## Unreleased
 
+- Add Buy Me a Coffee sponsor button to README and native GitHub funding link via `.github/FUNDING.yml`.
+
 ### Changed
 
 - Bumped `@earendil-works/pi-ai` from 0.78.0 to 0.80.3.
@@ -91,3 +93,4 @@
 - Added `/soccer setup`, `/soccer pick`, `/soccer get-key`, and `/soccer sync`.
 - Added Tab completion for soccer subcommands and cached numeric selections.
 - Added 6-hour snapshot cache plus watchlist/discovery sync to reduce API requests.
+
