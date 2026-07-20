@@ -40,6 +40,7 @@
 - Bumped GitHub Actions `actions/checkout` from v4/v6 to v7 and `actions/setup-node` from v4 to v6.
 
 - Removed `/soccer:champions`, `/soccer:ucl`, and `/ucl:prediction-ai` commands after the Champions League final event window to simplify widget refresh behavior.
+- Bump package version to `1.1.2` for the next patch release.
 
 ## 0.4.0 - 2026-05-30
 
