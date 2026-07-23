@@ -16,6 +16,10 @@ test("ci workflow invokes npm run ci", () => {
 
 test("OPERATIONS.md references npm run ci as maintainer validation command", () => {
   const operations = readFileSync("OPERATIONS.md", "utf8");
-  assert.match(operations, /npm run ci/);
-  assert.doesNotMatch(operations, /確認コマンド `npm run check` が成功する/);
+  const template = operations.match(
+    /### 2\.2 受け入れ条件テンプレート[\s\S]*?```text([\s\S]*?)```/,
+  )?.[1];
+  assert.ok(template);
+  assert.match(template, /確認コマンド `npm run ci` が成功する/);
+  assert.doesNotMatch(template, /npm run check/);
 });
