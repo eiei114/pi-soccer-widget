@@ -13,3 +13,13 @@ test("ci workflow invokes npm run ci", () => {
   const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
   assert.match(workflow, /npm run ci/);
 });
+
+test("CONTRIBUTING.md requires npm run ci for pull requests", () => {
+  const contributing = readFileSync("CONTRIBUTING.md", "utf8");
+  const guidelines = contributing.match(
+    /## Pull request guidelines\n\n([\s\S]*?)\n\n## /,
+  )?.[1];
+  assert.ok(guidelines);
+  assert.match(guidelines, /Every PR must pass `npm run ci`/);
+  assert.doesNotMatch(guidelines, /Every PR must pass `npm run check`/);
+});
