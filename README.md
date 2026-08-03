@@ -8,6 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Pi package](https://img.shields.io/badge/Pi-package-blue)](https://pi.dev/)
 [![Trusted Publishing](https://img.shields.io/badge/npm-Trusted%20Publishing-CB3837)](https://docs.npmjs.com/trusted-publishers)
+<a href="https://buymeacoffee.com/ekawano114m"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="217" height="60"></a>
 
 Pi extension that shows a compact soccer widget above the prompt editor for your favorite club and World Cup follow.
 

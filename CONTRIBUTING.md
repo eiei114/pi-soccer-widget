@@ -46,7 +46,7 @@ Before starting a larger feature, open an issue to discuss the design.
 ## Pull request guidelines
 
 1. Keep changes focused — avoid mixing UI, data fetching, and docs changes in one PR.
-2. Every PR must pass `npm run check`.
+2. Every PR must pass `npm run ci` (same as GitHub Actions CI: typecheck, test, and release:check).
 3. Add or update tests for new functionality.
 4. Update `README.md` and `CHANGELOG.md` for user-facing changes.
 5. Do not commit API keys, auth files, or local cache data.

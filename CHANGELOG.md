@@ -38,6 +38,19 @@
 - `/soccer:add`, `/soccer:favorite`, and `/soccer:remove` without arguments open a Pi UI picker; pass a team name for fuzzy match instead of a number.
 - Removed search-result cache file (`pi-soccer-widget-search.json`) and tab completion for cached numeric picks.
 
+## Unreleased
+
+- Add Buy Me a Coffee sponsor button to README and native GitHub funding link via `.github/FUNDING.yml`.
+
+### Changed
+
+- Bumped `@earendil-works/pi-ai` from 0.78.0 to 0.80.3.
+- Bumped `@types/node` from 25.9.1 to 26.1.0.
+- Bumped GitHub Actions `actions/checkout` from v4/v6 to v7 and `actions/setup-node` from v4 to v6.
+
+- Removed `/soccer:champions`, `/soccer:ucl`, and `/ucl:prediction-ai` commands after the Champions League final event window to simplify widget refresh behavior.
+- Bump package version to `1.1.2` for the next patch release.
+
 ## 0.4.0 - 2026-05-30
 
 - Added `/soccer:champions` and `/soccer:ucl` for a Champions League final matchday widget with football-data.org `CL` data when configured and a screenshotable scheduled fallback.
