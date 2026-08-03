@@ -1,5 +1,7 @@
 # pi-soccer-widget
 
+[![Join dotfield.xyz on Discord](https://img.shields.io/badge/Join%20dotfield.xyz%20on%20Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/4945dXZVW5)
+
 [![CI](https://github.com/eiei114/pi-soccer-widget/actions/workflows/ci.yml/badge.svg)](https://github.com/eiei114/pi-soccer-widget/actions/workflows/ci.yml)
 [![Publish to npm](https://github.com/eiei114/pi-soccer-widget/actions/workflows/publish.yml/badge.svg)](https://github.com/eiei114/pi-soccer-widget/actions/workflows/publish.yml)
 [![Auto Release](https://github.com/eiei114/pi-soccer-widget/actions/workflows/auto-release.yml/badge.svg)](https://github.com/eiei114/pi-soccer-widget/actions/workflows/auto-release.yml)
