@@ -103,3 +103,10 @@
 - Added `/soccer setup`, `/soccer pick`, `/soccer get-key`, and `/soccer sync`.
 - Added Tab completion for soccer subcommands and cached numeric selections.
 - Added 6-hour snapshot cache plus watchlist/discovery sync to reduce API requests.
+
+## [1.1.3] - 2026-08-04
+
+### Changed
+
+- Bump package version for the Discord release webhook verification.
+
