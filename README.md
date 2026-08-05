@@ -110,6 +110,7 @@ Runtime state is written locally under `~/.pi/agent/` (config, auth, cache, snap
 npm install
 npm test          # build + node:test suite
 npm run check     # test + pack dry-run
+npm run ci        # typecheck + test + release check (same as GitHub Actions CI)
 npm run release:check
 ```
 

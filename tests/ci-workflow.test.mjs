@@ -33,3 +33,12 @@ test("OPERATIONS.md references npm run ci as maintainer validation command", () 
   assert.match(template, /確認コマンド `npm run ci` が成功する/);
   assert.doesNotMatch(template, /npm run check/);
 });
+
+test("README.md documents npm run ci in Development section", () => {
+  const readme = readFileSync("README.md", "utf8");
+  const development = readme.match(
+    /## Development\n\n```bash\n([\s\S]*?)```/,
+  )?.[1];
+  assert.ok(development);
+  assert.match(development, /npm run ci/);
+});
