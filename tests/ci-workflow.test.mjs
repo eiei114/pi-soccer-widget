@@ -24,6 +24,13 @@ test("CONTRIBUTING.md requires npm run ci for pull requests", () => {
   assert.doesNotMatch(guidelines, /Every PR must pass `npm run check`/);
 });
 
+test("release-check expected tarball list includes OPERATIONS.md from package.json files", () => {
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const releaseCheck = readFileSync("scripts/release-check.mjs", "utf8");
+  assert.ok(pkg.files.includes("OPERATIONS.md"));
+  assert.match(releaseCheck, /"OPERATIONS\.md"/);
+});
+
 test("OPERATIONS.md references npm run ci as maintainer validation command", () => {
   const operations = readFileSync("OPERATIONS.md", "utf8");
   const template = operations.match(

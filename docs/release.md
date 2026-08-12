@@ -22,14 +22,13 @@ This runs `npm run check` (build + dry-run pack) and validates tarball contents 
 
 - `CHANGELOG.md`
 - `LICENSE`
+- `OPERATIONS.md`
 - `README.md`
 - `dist/extensions/index.d.ts`
 - `dist/extensions/index.js`
 - `dist/extensions/index.js.map`
 - `extensions/index.ts`
 - `package.json`
-
-`OPERATIONS.md` may also ship via `package.json` `files` but is not part of the strict expected list check.
 
 ## When to update docs
 
