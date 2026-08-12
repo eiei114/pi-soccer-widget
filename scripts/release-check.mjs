@@ -17,6 +17,7 @@ import { writeFileSync, readFileSync } from "node:fs";
 const EXPECTED_FILES = [
   "CHANGELOG.md",
   "LICENSE",
+  "OPERATIONS.md",
   "README.md",
   "dist/extensions/index.d.ts",
   "dist/extensions/index.js",
