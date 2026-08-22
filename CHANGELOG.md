@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.4 - 2026-08-22
+
+### Changed
+
+- Merge the 2026-08-22 managed OSS dependency and maintenance PR batch.
+
 ## 1.1.1 - 2026-07-04
 
 ### Changed
@@ -109,4 +115,3 @@
 ### Changed
 
 - Bump package version for the Discord release webhook verification.
-
