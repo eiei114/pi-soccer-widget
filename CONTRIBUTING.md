@@ -47,9 +47,10 @@ Before starting a larger feature, open an issue to discuss the design.
 
 1. Keep changes focused — avoid mixing UI, data fetching, and docs changes in one PR.
 2. Every PR must pass `npm run ci` (same as GitHub Actions CI: typecheck, test, and release:check).
-3. Add or update tests for new functionality.
-4. Update `README.md` and `CHANGELOG.md` for user-facing changes.
-5. Do not commit API keys, auth files, or local cache data.
+3. Pull requests also run `npm run version:check` in CI to enforce optional semver bumps and CHANGELOG updates when `package.json` version changes.
+4. Add or update tests for new functionality.
+5. Update `README.md` and `CHANGELOG.md` for user-facing changes.
+6. Do not commit API keys, auth files, or local cache data.
 
 ## Release process
 
