@@ -16,8 +16,15 @@ test("ci workflow invokes npm run ci", () => {
 
 test("ci workflow invokes npm run version:check on pull requests", () => {
   const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
-  assert.match(workflow, /npm run version:check/);
-  assert.match(workflow, /pull_request/);
+  const versionCheckStep = workflow.match(
+    /- name: Verify version bump policy[\s\S]*?(?=\n\s*- name:|\n\s*$)/,
+  )?.[0];
+  assert.ok(versionCheckStep);
+  assert.match(
+    versionCheckStep,
+    /if:\s*github\.event_name == ['"]pull_request['"]/,
+  );
+  assert.match(versionCheckStep, /run:\s*npm run version:check/);
 });
 
 test("CONTRIBUTING.md requires npm run ci for pull requests", () => {
