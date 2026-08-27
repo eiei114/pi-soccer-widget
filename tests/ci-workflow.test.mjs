@@ -14,6 +14,12 @@ test("ci workflow invokes npm run ci", () => {
   assert.match(workflow, /npm run ci/);
 });
 
+test("ci workflow invokes npm run version:check on pull requests", () => {
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  assert.match(workflow, /npm run version:check/);
+  assert.match(workflow, /pull_request/);
+});
+
 test("CONTRIBUTING.md requires npm run ci for pull requests", () => {
   const contributing = readFileSync("CONTRIBUTING.md", "utf8");
   const guidelines = contributing.match(
@@ -22,6 +28,15 @@ test("CONTRIBUTING.md requires npm run ci for pull requests", () => {
   assert.ok(guidelines);
   assert.match(guidelines, /Every PR must pass `npm run ci`/);
   assert.doesNotMatch(guidelines, /Every PR must pass `npm run check`/);
+});
+
+test("CONTRIBUTING.md documents npm run version:check for pull requests", () => {
+  const contributing = readFileSync("CONTRIBUTING.md", "utf8");
+  const guidelines = contributing.match(
+    /## Pull request guidelines\n\n([\s\S]*?)\n\n## /,
+  )?.[1];
+  assert.ok(guidelines);
+  assert.match(guidelines, /npm run version:check/);
 });
 
 test("release-check expected tarball list includes OPERATIONS.md from package.json files", () => {
