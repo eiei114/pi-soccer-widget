@@ -71,3 +71,24 @@ test("README.md documents npm run ci in Development section", () => {
   assert.ok(development);
   assert.match(development, /npm run ci/);
 });
+
+test("docs/examples.md club widget sample includes cache age hint", () => {
+  const examples = readFileSync("docs/examples.md", "utf8");
+  const clubSample = examples.match(
+    /## Widget output \(club mode\)\n\n```text\n([\s\S]*?)```/,
+  )?.[1];
+  assert.ok(clubSample);
+  assert.match(clubSample, /Soccer: .+ \| cache \d+h ago/);
+  assert.match(clubSample, /Last: .+  [WDL]/);
+  assert.match(clubSample, /Next: vs .+ \| \d+\/\d+ \d{2}:\d{2}/);
+});
+
+test("docs/examples.md includes World Cup widget sample with sync hint", () => {
+  const examples = readFileSync("docs/examples.md", "utf8");
+  const worldCupSample = examples.match(
+    /## Widget output \(World Cup mode\)\n\n```text\n([\s\S]*?)```/,
+  )?.[1];
+  assert.ok(worldCupSample);
+  assert.match(worldCupSample, /World Cup: .+ \| cache .+ \| sync ~10m/);
+  assert.match(worldCupSample, /Goals:/);
+});
