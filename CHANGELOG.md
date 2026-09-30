@@ -114,6 +114,12 @@
 - Added Tab completion for soccer subcommands and cached numeric selections.
 - Added 6-hour snapshot cache plus watchlist/discovery sync to reduce API requests.
 
+## [1.1.6] - 2026-09-30
+
+### Changed
+
+- Update `@earendil-works/pi-*` dependencies to `0.99.1`.
+
 ## [1.1.3] - 2026-08-04
 
 ### Changed
