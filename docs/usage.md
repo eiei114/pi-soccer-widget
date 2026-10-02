@@ -18,7 +18,7 @@ API-key-only path:
 /soccer:logout
 ```
 
-`/soccer:status` reports whether a key is configured and its source (`env`, `file`, or none) without printing the key value.
+`/soccer:status` reports whether a key is configured and its source (environment variable, Pi login, or none) without printing the key value. A configured login is shown as `configured via pi-soccer-widget login.`
 
 Environment variable fallback:
 
