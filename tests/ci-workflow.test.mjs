@@ -92,3 +92,11 @@ test("docs/examples.md includes World Cup widget sample with sync hint", () => {
   assert.match(worldCupSample, /World Cup: .+ \| cache .+ \| sync ~10m/);
   assert.match(worldCupSample, /Goals:/);
 });
+
+test("docs/examples.md status sample matches the login status output", () => {
+  const examples = readFileSync("docs/examples.md", "utf8");
+  const usage = readFileSync("docs/usage.md", "utf8");
+  assert.match(examples, /Football-data API key: configured via pi-soccer-widget login\./);
+  assert.match(usage, /environment variable, Pi login, or none/);
+  assert.doesNotMatch(usage, /`env`, `file`, or none/);
+});

@@ -21,6 +21,14 @@ The first line ends with a source marker (`favorite`, `watchlist`, or `discovery
 /soccer:list
 ```
 
+After login, `/soccer:status` confirms the source without printing the token:
+
+```text
+Football-data API key: configured via pi-soccer-widget login.
+Snapshot cache: 2h ago
+Discovery league: none
+```
+
 ## Watchlist maintenance
 
 ```text
