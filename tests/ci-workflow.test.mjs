@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-test("package.json ci script runs typecheck, test, and release:check", () => {
+test("package.json ci script runs typecheck, tests, Pi SDK smoke, and release:check", () => {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   assert.match(pkg.scripts.ci, /typecheck/);
   assert.match(pkg.scripts.ci, /test/);
+  assert.match(pkg.scripts.ci, /smoke:pi/);
   assert.match(pkg.scripts.ci, /release:check/);
+  assert.match(pkg.scripts["smoke:pi"], /scripts\/pi-sdk-smoke\.mjs/);
 });
 
 test("ci workflow invokes npm run ci", () => {

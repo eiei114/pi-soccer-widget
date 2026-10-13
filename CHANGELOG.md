@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.7 - 2026-10-12
+
+### Changed
+
+- Declare the host-provided Pi AI SDK as a wildcard peer dependency and pin the frozen Pi SDK wave for development verification.
+- Add an actual Pi 1.1.0 RPC smoke covering soccer command registration, success/error responses, reload cleanup, and the native shell.
+
 ## 1.1.5 - 2026-09-27
 
 - chore: periodic patch bump after 7+ days without npm publish
