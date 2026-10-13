@@ -48,7 +48,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="$RELEASE_TAG"
-          PREV_TAG=$(git tag --sort=-version:refname | head -1)
+          PREV_TAG=$(git tag --list | node scripts/select-previous-release-tag.mjs "$TAG")
           NOTES="Released ${TAG}."
           if [ -n "$PREV_TAG" ]; then
             printf -v NOTES '%s\n\n**Full Changelog**: https://github.com/%s/compare/%s...%s' \
