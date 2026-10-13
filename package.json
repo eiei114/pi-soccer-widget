@@ -36,7 +36,7 @@
     "check": "npm test && npm pack --dry-run",
     "release:check": "node scripts/release-check.mjs",
     "prepack": "npm run build",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs tests/release-trigger-contract.test.mjs",
     "smoke:pi": "node scripts/pi-sdk-smoke.mjs",
     "ci": "npm run typecheck && npm test && npm run smoke:pi && npm run release:check",
     "version:check": "node scripts/check-version-bump.mjs"
