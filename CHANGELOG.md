@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.10 - 2026-10-17
+
+### Changed
+
+- Pin development and smoke verification to Pi SDK 1.2.0 and confirm the soccer extension against the actual Pi host.
+
 ## 1.1.9 - 2026-10-17
 
 ### Changed

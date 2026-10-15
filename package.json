@@ -1,6 +1,6 @@
 {
   "name": "pi-soccer-widget",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "description": "Pi widget for tracking a favorite soccer team with standings, recent results, and upcoming matches.",
   "type": "module",
   "keywords": [
@@ -47,10 +47,10 @@
   "author": "Keisu",
   "license": "MIT",
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "1.1.0",
-    "@earendil-works/pi-ai": "1.1.0",
-    "@earendil-works/pi-coding-agent": "1.1.0",
-    "@earendil-works/pi-tui": "1.1.0",
+    "@earendil-works/pi-agent-core": "1.2.0",
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-coding-agent": "1.2.0",
+    "@earendil-works/pi-tui": "1.2.0",
     "@types/node": "^26.1.0",
     "typescript": "^7.0.2"
   },
