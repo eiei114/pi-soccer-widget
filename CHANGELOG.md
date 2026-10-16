@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.9 - 2026-10-17
+
+### Changed
+
+- Extract team-name normalization and fuzzy matching into a focused internal module without changing selection behavior.
+
 ## 1.1.7 - 2026-10-12
 
 ### Changed
