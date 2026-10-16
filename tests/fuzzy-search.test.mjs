@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { __testing } from "../dist/extensions/index.js";
+import { editDistance, fuzzyScore, normalizeName, scoreTeamMatch } from "../dist/extensions/team-matching.js";
 
 const teams = [
   { teamId: 1, name: "Arsenal FC", shortName: "Arsenal", tla: "ARS", leagueCode: "PL" },
@@ -11,14 +12,14 @@ const teams = [
 ];
 
 test("fuzzy score tolerates common team name misspellings", () => {
-  assert.ok(__testing.scoreTeamMatch("arsnal", teams[0]) > 0);
-  assert.ok(__testing.scoreTeamMatch("chelse", teams[1]) > 0);
-  assert.ok(__testing.scoreTeamMatch("manchster united", teams[3]) > 0);
+  assert.ok(scoreTeamMatch("arsnal", teams[0]) > 0);
+  assert.ok(scoreTeamMatch("chelse", teams[1]) > 0);
+  assert.ok(scoreTeamMatch("manchster united", teams[3]) > 0);
 });
 
 test("fuzzy score still ranks exact and prefix matches above misspell matches", () => {
-  assert.ok(__testing.scoreTeamMatch("arsenal", teams[0]) > __testing.scoreTeamMatch("arsnal", teams[0]));
-  assert.ok(__testing.scoreTeamMatch("real", teams[2]) > __testing.scoreTeamMatch("rel", teams[2]));
+  assert.ok(scoreTeamMatch("arsenal", teams[0]) > scoreTeamMatch("arsnal", teams[0]));
+  assert.ok(scoreTeamMatch("real", teams[2]) > scoreTeamMatch("rel", teams[2]));
 });
 
 test("watchlist lookup rejects numeric selection and keeps fuzzy string selection working", () => {
@@ -51,13 +52,18 @@ test("short unrelated queries do not fuzzy-match watchlist teams", () => {
   const config = { favoriteTeamId: 1, teams, updatedAt: new Date(0).toISOString() };
 
   assert.equal(__testing.teamFromConfigArg("xy", config).team, undefined);
-  assert.equal(__testing.scoreTeamMatch("xy", teams[0]), 0);
+  assert.equal(scoreTeamMatch("xy", teams[0]), 0);
 });
 
 test("fuzzy score handles case, empty input, and punctuation edge cases", () => {
-  assert.equal(__testing.scoreTeamMatch("ARSENAL", teams[0]), __testing.scoreTeamMatch("arsenal", teams[0]));
-  assert.equal(__testing.scoreTeamMatch("", teams[0]), 0);
-  assert.equal(__testing.fuzzyScore("arsenal", ""), 0);
-  assert.ok(__testing.scoreTeamMatch("manchester-united!!!", teams[3]) > 0);
-  assert.ok(__testing.scoreTeamMatch("real_madrid", teams[2]) > 0);
+  assert.equal(scoreTeamMatch("ARSENAL", teams[0]), scoreTeamMatch("arsenal", teams[0]));
+  assert.equal(scoreTeamMatch("", teams[0]), 0);
+  assert.equal(fuzzyScore("arsenal", ""), 0);
+  assert.ok(scoreTeamMatch("manchester-united!!!", teams[3]) > 0);
+  assert.ok(scoreTeamMatch("real_madrid", teams[2]) > 0);
+});
+
+test("team matching keeps name normalization and edit-distance behavior", () => {
+  assert.equal(normalizeName("Montréal FC!"), "montreal fc");
+  assert.equal(editDistance("kitten", "sitting"), 3);
 });
