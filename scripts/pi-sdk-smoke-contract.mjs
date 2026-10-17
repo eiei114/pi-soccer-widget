@@ -1,4 +1,5 @@
 export const VERIFICATION_CONTRACT = "pi-sdk-behavior-v2";
+export const SDK_VERSION = "1.2.0";
 export const SDK_NAMES = [
   "@earendil-works/pi-agent-core",
   "@earendil-works/pi-ai",

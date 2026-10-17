@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { behaviorAssertions, SDK_NAMES, VERIFICATION_CONTRACT } from "../scripts/pi-sdk-smoke-contract.mjs";
+import { behaviorAssertions, SDK_NAMES, SDK_VERSION, VERIFICATION_CONTRACT } from "../scripts/pi-sdk-smoke-contract.mjs";
 
 const commandResponse = {
   type: "response",
@@ -21,8 +21,9 @@ const statusNotification = {
 };
 const statusResponses = [commandResponse, promptResponse, statusNotification];
 
-test("the frozen Pi SDK contract names all 1.1.0 packages", () => {
+test("the frozen Pi SDK contract names all 1.2.0 packages", () => {
   assert.equal(VERIFICATION_CONTRACT, "pi-sdk-behavior-v2");
+  assert.equal(SDK_VERSION, "1.2.0");
   assert.deepEqual(SDK_NAMES, [
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
@@ -55,9 +56,9 @@ test("positive actual-observation fixtures produce the required semantic IDs", (
   });
   const shell = behaviorAssertions("host_shell", {
     responses: [],
-    fullOutput: "1.1.0\n",
+    fullOutput: `${SDK_VERSION}\n`,
     exitCode: 0,
-    expectedVersion: "1.1.0",
+    expectedVersion: SDK_VERSION,
   });
 
   assert.deepEqual(load.map(({ id }) => id), ["extension_registered"]);
@@ -89,7 +90,7 @@ test("missing responses and nonzero reload exits fail closed", () => {
       responses: [],
       fullOutput: "not-pi\n",
       exitCode: 0,
-      expectedVersion: "1.1.0",
+      expectedVersion: SDK_VERSION,
     }),
   ];
   assert.ok(missing[0].every(({ passed }) => !passed));
