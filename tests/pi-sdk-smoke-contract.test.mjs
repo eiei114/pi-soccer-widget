@@ -20,6 +20,15 @@ const statusNotification = {
   message: "Football-data API key: not configured. Run /soccer:setup.\nSnapshot cache: empty\nDiscovery league: none",
 };
 const statusResponses = [commandResponse, promptResponse, statusNotification];
+const malformedConfigResponses = [
+  promptResponse,
+  {
+    type: "extension_ui_request",
+    method: "notify",
+    notifyType: "warning",
+    message: "No teams in watchlist. Run /soccer:add.",
+  },
+];
 
 test("the frozen Pi SDK contract names all 1.2.0 packages", () => {
   assert.equal(VERIFICATION_CONTRACT, "pi-sdk-behavior-v2");
@@ -46,6 +55,9 @@ test("positive actual-observation fixtures produce the required semantic IDs", (
       },
     ],
   });
+  const malformedConfig = behaviorAssertions("malformed_config", {
+    responses: malformedConfigResponses,
+  });
   const reload = behaviorAssertions("reload_cleanup", {
     responses: statusResponses,
     fullOutput: "",
@@ -64,13 +76,14 @@ test("positive actual-observation fixtures produce the required semantic IDs", (
   assert.deepEqual(load.map(({ id }) => id), ["extension_registered"]);
   assert.deepEqual(happy.map(({ id }) => id), ["feature_response"]);
   assert.deepEqual(error.map(({ id }) => id), ["handled_error"]);
+  assert.deepEqual(malformedConfig.map(({ id }) => id), ["malformed_config_recovers"]);
   assert.deepEqual(reload.map(({ id }) => id), [
     "reloaded_extension_registered",
     "reloaded_feature_response",
     "clean_shutdown",
   ]);
   assert.deepEqual(shell.map(({ id }) => id), ["native_shell_boundary"]);
-  assert.ok([load, happy, error, reload, shell].flat().every(({ passed }) => passed));
+  assert.ok([load, happy, error, malformedConfig, reload, shell].flat().every(({ passed }) => passed));
 });
 
 test("missing responses and nonzero reload exits fail closed", () => {
@@ -78,6 +91,7 @@ test("missing responses and nonzero reload exits fail closed", () => {
     behaviorAssertions("extension_load", { responses: [] }),
     behaviorAssertions("happy_path", { responses: [promptResponse] }),
     behaviorAssertions("error_path", { responses: [promptResponse] }),
+    behaviorAssertions("malformed_config", { responses: [promptResponse] }),
     behaviorAssertions("reload_cleanup", {
       responses: statusResponses,
       fullOutput: "",
@@ -96,8 +110,25 @@ test("missing responses and nonzero reload exits fail closed", () => {
   assert.ok(missing[0].every(({ passed }) => !passed));
   assert.ok(missing[1].every(({ passed }) => !passed));
   assert.ok(missing[2].every(({ passed }) => !passed));
-  assert.equal(missing[3][0].passed, true);
-  assert.equal(missing[3][1].passed, false);
-  assert.equal(missing[3][2].passed, false);
-  assert.ok(missing[4].every(({ passed }) => !passed));
+  assert.ok(missing[3].every(({ passed }) => !passed));
+  assert.equal(missing[4][0].passed, true);
+  assert.equal(missing[4][1].passed, false);
+  assert.equal(missing[4][2].passed, false);
+  assert.ok(missing[5].every(({ passed }) => !passed));
+});
+
+test("malformed config assertion rejects parse errors and wrong user-facing fallback", () => {
+  const results = behaviorAssertions("malformed_config", {
+    responses: [
+      promptResponse,
+      {
+        type: "extension_ui_request",
+        method: "notify",
+        notifyType: "warning",
+        message: "Soccer error: Unexpected end of JSON input",
+      },
+    ],
+  });
+
+  assert.equal(results[0].passed, false);
 });

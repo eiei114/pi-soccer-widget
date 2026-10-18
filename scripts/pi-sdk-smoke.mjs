@@ -127,6 +127,18 @@ try {
     exitCode: errorRun.exit_code,
   });
 
+  const configPath = resolve(homeDir, ".pi", "agent", "pi-soccer-widget-config.json");
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, "{ malformed", "utf8");
+  const malformedConfigRun = run("malformed_config", process.execPath, rpcArgs,
+    commandStream("/soccer:list"), errorEnv);
+  const malformedConfigAssertions = behaviorAssertions("malformed_config", {
+    responses: malformedConfigRun.responses,
+    fullOutput: malformedConfigRun.fullOutput,
+    exitCode: malformedConfigRun.exit_code,
+  });
+  rmSync(configPath, { force: true });
+
   // Two independent real host processes share only the isolated Pi/home directories.
   const reloadFirst = run("reload_cleanup_first", process.execPath, rpcArgs, commandStream("/soccer:status"));
   const reloadSecond = run("reload_cleanup_second", process.execPath, rpcArgs, commandStream("/soccer:status"));
@@ -159,6 +171,7 @@ try {
     makeCase("extension_load", loadRun, loadAssertions),
     makeCase("happy_path", happyRun, happyAssertions),
     makeCase("error_path", errorRun, errorAssertions),
+    makeCase("malformed_config", malformedConfigRun, malformedConfigAssertions),
     makeCase("reload_cleanup", reloadFirst, reloadAssertions, { second: reloadSecond }),
     {
       name: "host_shell",
