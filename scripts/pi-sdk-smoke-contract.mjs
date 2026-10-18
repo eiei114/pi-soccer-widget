@@ -89,6 +89,21 @@ export function behaviorAssertions(name, {
       errorPrompt?.success === true && errorPrompt.data?.disposition === "handled" && !!errorNotification,
     )];
   }
+  if (name === "malformed_config") {
+    const malformedConfigPrompt = statusPrompt(responses);
+    const malformedConfigNotification = responses.find((row) => row?.type === "extension_ui_request"
+      && row.method === "notify"
+      && row.notifyType === "warning"
+      && row.message === "No teams in watchlist. Run /soccer:add.");
+    return [assertion(
+      "malformed_config_recovers",
+      "With malformed pi-soccer-widget-config.json, actual /soccer:list is handled and reports an empty watchlist",
+      { prompt: malformedConfigPrompt ?? null, notification: malformedConfigNotification ?? null },
+      malformedConfigPrompt?.success === true
+        && malformedConfigPrompt.data?.disposition === "handled"
+        && !!malformedConfigNotification,
+    )];
+  }
   if (name === "reload_cleanup") {
     const reloadedCommands = (commandList(secondResponses) ?? [])
       .filter((command) => command.name === "soccer:status")
