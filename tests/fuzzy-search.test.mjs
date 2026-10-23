@@ -67,6 +67,8 @@ test("fuzzy score preserves accepted edit-distance thresholds", () => {
   assert.equal(fuzzyScore("abcdefghi", "abcxyzghi"), 0);
   assert.equal(fuzzyScore("kitten", "sitting"), 0);
   assert.equal(fuzzyScore("kitten", "sitten"), 65);
+  assert.equal(fuzzyScore("abcdefgh", "abxxefgh"), 58);
+  assert.equal(fuzzyScore("abcdefghijklmn", "abcxxxghijklmn"), 52);
   assert.equal(fuzzyScore("internationalchampions", "internationalchompions"), 65);
 });
 

@@ -42,10 +42,10 @@ function editDistanceAtMost(a: string, b: string, maximum: number): number {
   let current = new Array<number>(b.length + 1).fill(exceedsMaximum);
 
   for (let i = 1; i <= a.length; i += 1) {
-    current.fill(exceedsMaximum);
     current[0] = i <= maximum ? i : exceedsMaximum;
     const firstColumn = Math.max(1, i - maximum);
     const lastColumn = Math.min(b.length, i + maximum);
+    if (firstColumn > 1) current[firstColumn - 1] = exceedsMaximum;
 
     for (let j = firstColumn; j <= lastColumn; j += 1) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
@@ -55,6 +55,7 @@ function editDistanceAtMost(a: string, b: string, maximum: number): number {
         previous[j - 1] + cost,
       );
     }
+    if (lastColumn < b.length) current[lastColumn + 1] = exceedsMaximum;
 
     [previous, current] = [current, previous];
   }
