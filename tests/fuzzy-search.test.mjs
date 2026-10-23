@@ -63,6 +63,13 @@ test("fuzzy score handles case, empty input, and punctuation edge cases", () => 
   assert.ok(scoreTeamMatch("real_madrid", teams[2]) > 0);
 });
 
+test("fuzzy score preserves accepted edit-distance thresholds", () => {
+  assert.equal(fuzzyScore("abcdefghi", "abcxyzghi"), 0);
+  assert.equal(fuzzyScore("kitten", "sitting"), 0);
+  assert.equal(fuzzyScore("kitten", "sitten"), 65);
+  assert.equal(fuzzyScore("internationalchampions", "internationalchompions"), 65);
+});
+
 test("team matching keeps name normalization and edit-distance behavior", () => {
   assert.equal(normalizeName("Montréal FC!"), "montreal fc");
   assert.equal(editDistance("kitten", "sitting"), 3);

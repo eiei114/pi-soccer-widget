@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.11 - 2026-10-24
+
+### Changed
+
+- Bound fuzzy team matching to the maximum edit distance used for ranking, reducing work during broad team searches without changing results.
+
 ## 1.1.10 - 2026-10-17
 
 ### Changed
