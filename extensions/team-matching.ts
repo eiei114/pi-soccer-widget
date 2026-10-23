@@ -32,6 +32,37 @@ export function editDistance(a: string, b: string): number {
   return previous[b.length];
 }
 
+function editDistanceAtMost(a: string, b: string, maximum: number): number {
+  const exceedsMaximum = maximum + 1;
+  if (Math.abs(a.length - b.length) > maximum) return exceedsMaximum;
+
+  let previous = Array.from({ length: b.length + 1 }, (_, index) =>
+    index <= maximum ? index : exceedsMaximum,
+  );
+  let current = new Array<number>(b.length + 1).fill(exceedsMaximum);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i <= maximum ? i : exceedsMaximum;
+    const firstColumn = Math.max(1, i - maximum);
+    const lastColumn = Math.min(b.length, i + maximum);
+    if (firstColumn > 1) current[firstColumn - 1] = exceedsMaximum;
+
+    for (let j = firstColumn; j <= lastColumn; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + cost,
+      );
+    }
+    if (lastColumn < b.length) current[lastColumn + 1] = exceedsMaximum;
+
+    [previous, current] = [current, previous];
+  }
+
+  return previous[b.length] <= maximum ? previous[b.length] : exceedsMaximum;
+}
+
 export function fuzzyScore(query: string, name: string): number {
   const q = normalizeName(query);
   const candidate = normalizeName(name);
@@ -52,9 +83,10 @@ export function fuzzyScore(query: string, name: string): number {
     }
   }
   const variants = [candidate, ...windows, ...words.filter((part) => part.length >= 4)];
+  const maxDistance = q.length >= 10 ? 3 : q.length >= 6 ? 2 : 1;
   return variants.reduce((best, variant) => {
     const longest = Math.max(q.length, variant.length);
-    const distance = editDistance(q, variant);
+    const distance = editDistanceAtMost(q, variant, maxDistance);
     const similarity = 1 - distance / longest;
     if (distance <= 1 && q.length >= 4) return Math.max(best, 65);
     if (distance <= 2 && q.length >= 6 && similarity >= 0.72) return Math.max(best, 58);
