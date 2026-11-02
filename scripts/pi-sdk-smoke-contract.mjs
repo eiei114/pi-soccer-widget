@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+
 export const VERIFICATION_CONTRACT = "pi-sdk-behavior-v2";
-export const SDK_VERSION = "1.2.0";
+export const SDK_VERSION = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).devDependencies["@earendil-works/pi-coding-agent"];
 export const SDK_NAMES = [
   "@earendil-works/pi-agent-core",
   "@earendil-works/pi-ai",

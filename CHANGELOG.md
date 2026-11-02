@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.12 - 2026-11-03
+
+### Changed
+
+- Update the development Pi coding-agent SDK to 1.4.0 and validate smoke-test pins against the package manifest.
+
 ## 1.1.11 - 2026-10-24
 
 ### Changed

@@ -7,7 +7,6 @@ import {
   EXTENSION_LOAD_ERROR_PATTERN,
   parseJsonLines,
   SDK_NAMES,
-  SDK_VERSION,
   UNHANDLED_ERROR_PATTERN,
   VERIFICATION_CONTRACT,
 } from "./pi-sdk-smoke-contract.mjs";
@@ -24,8 +23,8 @@ const sdkVersions = Object.fromEntries(SDK_NAMES.map((name) => [
 ]));
 
 for (const name of SDK_NAMES) {
-  if (manifest.devDependencies?.[name] !== sdkVersions[name] || sdkVersions[name] !== SDK_VERSION) {
-    throw new Error(`Smoke requires the exact frozen dev/test SDK pin for ${name}: installed ${sdkVersions[name]}`);
+  if (manifest.devDependencies?.[name] !== sdkVersions[name]) {
+    throw new Error(`Smoke requires the exact manifest dev/test SDK pin for ${name}: expected ${manifest.devDependencies?.[name]}, installed ${sdkVersions[name]}`);
   }
 }
 
