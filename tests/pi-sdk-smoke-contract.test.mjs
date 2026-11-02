@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { behaviorAssertions, SDK_NAMES, SDK_VERSION, VERIFICATION_CONTRACT } from "../scripts/pi-sdk-smoke-contract.mjs";
+import {
+  assertSdkVersionsMatchManifest,
+  behaviorAssertions,
+  SDK_NAMES,
+  VERIFICATION_CONTRACT,
+} from "../scripts/pi-sdk-smoke-contract.mjs";
 
 const commandResponse = {
   type: "response",
@@ -30,15 +35,26 @@ const malformedConfigResponses = [
   },
 ];
 
-test("the frozen Pi SDK contract names all 1.2.0 packages", () => {
+test("the Pi SDK smoke contract validates each package against its exact manifest pin", () => {
   assert.equal(VERIFICATION_CONTRACT, "pi-sdk-behavior-v2");
-  assert.equal(SDK_VERSION, "1.2.0");
   assert.deepEqual(SDK_NAMES, [
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@earendil-works/pi-coding-agent",
     "@earendil-works/pi-tui",
   ]);
+
+  const manifest = {
+    devDependencies: Object.fromEntries(SDK_NAMES.map((name, index) => [
+      name,
+      index === 0 ? "1.4.0" : "1.2.0",
+    ])),
+  };
+  assert.doesNotThrow(() => assertSdkVersionsMatchManifest(manifest, manifest.devDependencies));
+  assert.throws(
+    () => assertSdkVersionsMatchManifest(manifest, { ...manifest.devDependencies, [SDK_NAMES[0]]: "1.2.0" }),
+    /installed SDK version to match the manifest pin/,
+  );
 });
 
 test("positive actual-observation fixtures produce the required semantic IDs", () => {
@@ -68,9 +84,9 @@ test("positive actual-observation fixtures produce the required semantic IDs", (
   });
   const shell = behaviorAssertions("host_shell", {
     responses: [],
-    fullOutput: `${SDK_VERSION}\n`,
+    fullOutput: "1.2.0\n",
     exitCode: 0,
-    expectedVersion: SDK_VERSION,
+    expectedVersion: "1.2.0",
   });
 
   assert.deepEqual(load.map(({ id }) => id), ["extension_registered"]);
@@ -104,7 +120,7 @@ test("missing responses and nonzero reload exits fail closed", () => {
       responses: [],
       fullOutput: "not-pi\n",
       exitCode: 0,
-      expectedVersion: SDK_VERSION,
+      expectedVersion: "1.2.0",
     }),
   ];
   assert.ok(missing[0].every(({ passed }) => !passed));
