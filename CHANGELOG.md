@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.12 - 2026-11-03
+
+### Changed
+
+- Update `@earendil-works/pi-tui` to 1.4.0 and match each smoke dependency against its package.json pin, allowing SDK packages to update independently.
+
 ## 1.1.11 - 2026-10-24
 
 ### Changed

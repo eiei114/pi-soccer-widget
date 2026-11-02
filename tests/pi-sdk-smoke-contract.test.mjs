@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { behaviorAssertions, SDK_NAMES, SDK_VERSION, VERIFICATION_CONTRACT } from "../scripts/pi-sdk-smoke-contract.mjs";
+import { readFileSync } from "node:fs";
+import { behaviorAssertions, getSdkPinMismatches, SDK_NAMES, VERIFICATION_CONTRACT } from "../scripts/pi-sdk-smoke-contract.mjs";
+
+const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 const commandResponse = {
   type: "response",
@@ -30,15 +33,25 @@ const malformedConfigResponses = [
   },
 ];
 
-test("the frozen Pi SDK contract names all 1.2.0 packages", () => {
+test("the Pi SDK smoke contract follows each package.json devDependency pin", () => {
   assert.equal(VERIFICATION_CONTRACT, "pi-sdk-behavior-v2");
-  assert.equal(SDK_VERSION, "1.2.0");
   assert.deepEqual(SDK_NAMES, [
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@earendil-works/pi-coding-agent",
     "@earendil-works/pi-tui",
   ]);
+  assert.deepEqual(getSdkPinMismatches(manifest, manifest.devDependencies), []);
+
+  const outdatedInstalledVersions = {
+    ...manifest.devDependencies,
+    "@earendil-works/pi-tui": "1.2.0",
+  };
+  assert.deepEqual(getSdkPinMismatches(manifest, outdatedInstalledVersions), [{
+    name: "@earendil-works/pi-tui",
+    expected: manifest.devDependencies["@earendil-works/pi-tui"],
+    installed: "1.2.0",
+  }]);
 });
 
 test("positive actual-observation fixtures produce the required semantic IDs", () => {
@@ -68,9 +81,9 @@ test("positive actual-observation fixtures produce the required semantic IDs", (
   });
   const shell = behaviorAssertions("host_shell", {
     responses: [],
-    fullOutput: `${SDK_VERSION}\n`,
+    fullOutput: "expected-version\n",
     exitCode: 0,
-    expectedVersion: SDK_VERSION,
+    expectedVersion: "expected-version",
   });
 
   assert.deepEqual(load.map(({ id }) => id), ["extension_registered"]);
@@ -104,7 +117,7 @@ test("missing responses and nonzero reload exits fail closed", () => {
       responses: [],
       fullOutput: "not-pi\n",
       exitCode: 0,
-      expectedVersion: SDK_VERSION,
+      expectedVersion: "expected-version",
     }),
   ];
   assert.ok(missing[0].every(({ passed }) => !passed));

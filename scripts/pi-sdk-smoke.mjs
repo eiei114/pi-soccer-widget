@@ -5,9 +5,9 @@ import { dirname, resolve } from "node:path";
 import {
   behaviorAssertions,
   EXTENSION_LOAD_ERROR_PATTERN,
+  getSdkPinMismatches,
   parseJsonLines,
   SDK_NAMES,
-  SDK_VERSION,
   UNHANDLED_ERROR_PATTERN,
   VERIFICATION_CONTRACT,
 } from "./pi-sdk-smoke-contract.mjs";
@@ -23,10 +23,12 @@ const sdkVersions = Object.fromEntries(SDK_NAMES.map((name) => [
   readJson(resolve(root, "node_modules", name, "package.json")).version,
 ]));
 
-for (const name of SDK_NAMES) {
-  if (manifest.devDependencies?.[name] !== sdkVersions[name] || sdkVersions[name] !== SDK_VERSION) {
-    throw new Error(`Smoke requires the exact frozen dev/test SDK pin for ${name}: installed ${sdkVersions[name]}`);
-  }
+const pinMismatches = getSdkPinMismatches(manifest, sdkVersions);
+if (pinMismatches.length > 0) {
+  const { name, expected, installed } = pinMismatches[0];
+  throw new Error(
+    `Smoke requires each Pi SDK package to match its package.json devDependency pin: ${name} expected ${expected ?? "a declared pin"}, installed ${installed ?? "not installed"}`,
+  );
 }
 
 const piManifest = readJson(resolve(root, "node_modules/@earendil-works/pi-coding-agent/package.json"));
