@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.12 - 2026-11-03
+
+### Changed
+
+- Update `@earendil-works/pi-ai` to 1.4.0 and validate Pi SDK smoke versions against each package's manifest pin.
+
 ## 1.1.11 - 2026-10-24
 
 ### Changed

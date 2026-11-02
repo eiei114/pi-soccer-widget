@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import {
   behaviorAssertions,
+  assertSdkVersionsMatchManifest,
   EXTENSION_LOAD_ERROR_PATTERN,
   parseJsonLines,
   SDK_NAMES,
-  SDK_VERSION,
   UNHANDLED_ERROR_PATTERN,
   VERIFICATION_CONTRACT,
 } from "./pi-sdk-smoke-contract.mjs";
@@ -23,11 +23,7 @@ const sdkVersions = Object.fromEntries(SDK_NAMES.map((name) => [
   readJson(resolve(root, "node_modules", name, "package.json")).version,
 ]));
 
-for (const name of SDK_NAMES) {
-  if (manifest.devDependencies?.[name] !== sdkVersions[name] || sdkVersions[name] !== SDK_VERSION) {
-    throw new Error(`Smoke requires the exact frozen dev/test SDK pin for ${name}: installed ${sdkVersions[name]}`);
-  }
-}
+assertSdkVersionsMatchManifest(manifest, sdkVersions);
 
 const piManifest = readJson(resolve(root, "node_modules/@earendil-works/pi-coding-agent/package.json"));
 const piCli = resolve(root, "node_modules/@earendil-works/pi-coding-agent", piManifest.bin.pi);

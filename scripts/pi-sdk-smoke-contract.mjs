@@ -1,11 +1,22 @@
 export const VERIFICATION_CONTRACT = "pi-sdk-behavior-v2";
-export const SDK_VERSION = "1.2.0";
 export const SDK_NAMES = [
   "@earendil-works/pi-agent-core",
   "@earendil-works/pi-ai",
   "@earendil-works/pi-coding-agent",
   "@earendil-works/pi-tui",
 ];
+
+export function assertSdkVersionsMatchManifest(manifest, sdkVersions) {
+  for (const name of SDK_NAMES) {
+    const pinned = manifest.devDependencies?.[name];
+    const installed = sdkVersions[name];
+    if (!pinned || installed !== pinned) {
+      throw new Error(
+        `Smoke requires the installed SDK version to match the manifest pin for ${name}: pinned ${pinned ?? "<missing>"}, installed ${installed ?? "<missing>"}`,
+      );
+    }
+  }
+}
 
 export const UNHANDLED_ERROR_PATTERN = /UnhandledPromiseRejection|uncaught exception|shutdown error/i;
 export const EXTENSION_LOAD_ERROR_PATTERN = /Failed to load extension|Error loading extension/i;
