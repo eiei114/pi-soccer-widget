@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.12 - 2026-11-07
+
+### Changed
+
+- Pin the development and smoke-verification Pi SDK to 1.5.0 and validate the extension against the actual host.
+
 ## 1.1.11 - 2026-10-24
 
 ### Changed
