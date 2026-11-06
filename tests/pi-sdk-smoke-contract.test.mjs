@@ -30,9 +30,9 @@ const malformedConfigResponses = [
   },
 ];
 
-test("the frozen Pi SDK contract names all 1.2.0 packages", () => {
+test("the frozen Pi SDK contract names all 1.5.0 packages", () => {
   assert.equal(VERIFICATION_CONTRACT, "pi-sdk-behavior-v2");
-  assert.equal(SDK_VERSION, "1.2.0");
+  assert.equal(SDK_VERSION, "1.5.0");
   assert.deepEqual(SDK_NAMES, [
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
