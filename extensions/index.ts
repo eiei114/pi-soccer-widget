@@ -2026,6 +2026,7 @@ export const __testing = {
   guessWorldCupCountryFromLocaleTimezone,
   renderWorldCupSnapshot,
   normalizeName,
+  readConfig,
   scoreTeamMatch,
   setFollowedWorldCupTeam,
   shouldUseWorldCupWidget,
