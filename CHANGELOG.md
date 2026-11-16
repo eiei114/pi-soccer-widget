@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.13 - 2026-11-15
+
+### Changed
+
+- Add `tests/config-migration.test.mjs` covering legacy `soccer-team.json` migration, new-config precedence, team de-duplication, malformed-input fallbacks and World Cup normalization. No runtime behaviour changed.
+
 ## 1.1.12 - 2026-11-07
 
 ### Changed
