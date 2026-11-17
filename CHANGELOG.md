@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.14 - 2026-11-18
+
+### Changed
+
+- Bump the Pi SDK development/smoke verification pin from 1.5.0 to 1.5.2 (dependabot pi-sdk group) and read the smoke contract pin from `package.json` instead of hard-coding it. No runtime behaviour changed.
+
 ## 1.1.13 - 2026-11-15
 
 ### Changed

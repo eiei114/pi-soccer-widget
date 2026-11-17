@@ -1,11 +1,25 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 export const VERIFICATION_CONTRACT = "pi-sdk-behavior-v2";
-export const SDK_VERSION = "1.5.0";
 export const SDK_NAMES = [
   "@earendil-works/pi-agent-core",
   "@earendil-works/pi-ai",
   "@earendil-works/pi-coding-agent",
   "@earendil-works/pi-tui",
 ];
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+
+// The smoke contract verifies the exact development Pi SDK pin recorded in
+// package.json (all four packages must share one pin) instead of hard-coding
+// a version, so a Dependabot bump does not invalidate the contract.
+export const SDK_VERSION = manifest.devDependencies?.[SDK_NAMES[0]];
+if (typeof SDK_VERSION !== "string" || SDK_VERSION.length === 0) {
+  throw new Error(`Smoke contract requires an exact devDependencies pin for ${SDK_NAMES[0]} in package.json`);
+}
 
 export const UNHANDLED_ERROR_PATTERN = /UnhandledPromiseRejection|uncaught exception|shutdown error/i;
 export const EXTENSION_LOAD_ERROR_PATTERN = /Failed to load extension|Error loading extension/i;

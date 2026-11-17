@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { behaviorAssertions, SDK_NAMES, SDK_VERSION, VERIFICATION_CONTRACT } from "../scripts/pi-sdk-smoke-contract.mjs";
 
@@ -30,9 +31,13 @@ const malformedConfigResponses = [
   },
 ];
 
-test("the frozen Pi SDK contract names all 1.5.0 packages", () => {
+test("the Pi SDK contract pins the manifest dev/test SDK packages", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(VERIFICATION_CONTRACT, "pi-sdk-behavior-v2");
-  assert.equal(SDK_VERSION, "1.5.0");
+  for (const name of SDK_NAMES) {
+    assert.equal(manifest.devDependencies?.[name], SDK_VERSION, `${name} must match the expected manifest pin`);
+  }
+  assert.match(SDK_VERSION, /^\d+\.\d+\.\d+$/);
   assert.deepEqual(SDK_NAMES, [
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
