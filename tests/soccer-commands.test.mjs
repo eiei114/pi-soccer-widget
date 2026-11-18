@@ -56,6 +56,7 @@ async function withSoccerCommands(fn) {
   const agentDir = join(tmpHome, ".pi", "agent");
   const authFile = join(agentDir, "pi-soccer-widget-auth.json");
   const configFile = join(agentDir, "pi-soccer-widget-config.json");
+  const snapshotsFile = join(agentDir, "pi-soccer-widget-snapshots.json");
 
   useFetchStub();
 
@@ -72,7 +73,7 @@ async function withSoccerCommands(fn) {
         commands.set(name, definition);
       },
     });
-    await fn({ commands, agentDir, authFile, configFile });
+    await fn({ commands, agentDir, authFile, configFile, snapshotsFile });
   } finally {
     restoreFetch();
     for (const [name, value] of Object.entries(previousEnv)) restoreEnv(name, value);
@@ -524,7 +525,7 @@ test("/soccer:add rejects numeric IDs without changing the watchlist", async () 
 });
 
 test("/soccer:sync refreshes cached data and reports the discovered league", async () => {
-  await withSoccerCommands(async ({ commands, configFile }) => {
+  await withSoccerCommands(async ({ commands, configFile, snapshotsFile }) => {
     const sync = commands.get("soccer:sync");
     const apiKey = "fd_test_sync_key_1234567890";
     process.env.FOOTBALL_DATA_API_TOKEN = apiKey;
@@ -535,6 +536,9 @@ test("/soccer:sync refreshes cached data and reports the discovered league", asy
 
     await sync.handler("", ctx);
 
+    const snapshot = readJson(snapshotsFile).snapshots[String(ARSENAL.teamId)];
+    assert.equal(snapshot.team.name, "Arsenal FC");
+    assert.deepEqual(snapshot.standing, { position: 1, points: 30, playedGames: 12 });
     assert.deepEqual(notifications.at(-1), { text: "Soccer data synced. Discovery league: PL", level: "info" });
     assert.ok(widgets.length > 0, "sync refreshes the widget after updating cached data");
     assertStubbedApiAttempts(apiKey);
