@@ -18,14 +18,15 @@ const originalFetch = globalThis.fetch;
 let testRun = 0;
 let fetchAttempts = [];
 
-function useFailingFetch() {
+function useFetchStub(handler = () => Promise.reject(new Error("Network access is disabled in tests."))) {
   fetchAttempts = [];
   globalThis.fetch = (input, init) => {
-    fetchAttempts.push({
+    const attempt = {
       url: String(input?.url ?? input),
       headers: init?.headers ?? {},
-    });
-    return Promise.reject(new Error("Network access is disabled in tests."));
+    };
+    fetchAttempts.push(attempt);
+    return handler(attempt);
   };
 }
 
@@ -44,17 +45,19 @@ async function withSoccerCommands(fn) {
     HOME: process.env.HOME,
     USERPROFILE: process.env.USERPROFILE,
     FOOTBALL_DATA_API_TOKEN: process.env.FOOTBALL_DATA_API_TOKEN,
+    PI_SOCCER_LEAGUES: process.env.PI_SOCCER_LEAGUES,
   };
 
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
   delete process.env.FOOTBALL_DATA_API_TOKEN;
+  delete process.env.PI_SOCCER_LEAGUES;
 
   const agentDir = join(tmpHome, ".pi", "agent");
   const authFile = join(agentDir, "pi-soccer-widget-auth.json");
   const configFile = join(agentDir, "pi-soccer-widget-config.json");
 
-  useFailingFetch();
+  useFetchStub();
 
   try {
     const moduleUrl = new URL(
@@ -87,7 +90,8 @@ function createCtx(options = {}) {
       hasUI: true,
       ui: {
         theme: { fg: (_color, text) => text },
-        input: async () => options.input ?? "",
+        input: async (...args) => typeof options.input === "function" ? options.input(...args) : options.input ?? "",
+        select: async (...args) => typeof options.select === "function" ? options.select(...args) : options.select ?? null,
         notify: (text, level = "info") => notifications.push({ text, level }),
         setWidget: (id, lines) => widgets.push({ id, lines }),
       },
@@ -128,6 +132,54 @@ function assertOnlyApiBaseAttempts() {
   }
 }
 
+function useSoccerApiStub() {
+  useFetchStub(({ url }) => {
+    const path = new URL(url).pathname;
+    if (path === "/v4/competitions/PL/teams") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ teams: [{ id: ARSENAL.teamId, name: "Arsenal FC", shortName: "Arsenal", tla: "ARS" }] }),
+      });
+    }
+    if (path === "/v4/competitions/PL/standings") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ standings: [{
+          type: "TOTAL",
+          table: [{
+            position: 1,
+            points: 30,
+            playedGames: 12,
+            team: { id: ARSENAL.teamId, name: "Arsenal FC", shortName: "Arsenal", tla: "ARS" },
+          }],
+        }] }),
+      });
+    }
+    if (path === `/v4/teams/${ARSENAL.teamId}/matches`) {
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ matches: [] }) });
+    }
+    return Promise.reject(new Error(`Unexpected API request in stub: ${url}`));
+  });
+}
+
+function assertStubbedApiAttempts(token) {
+  assert.ok(fetchAttempts.length > 0, "command should exercise the stubbed API");
+  for (const attempt of fetchAttempts) {
+    assert.match(attempt.url, /^https:\/\/api\.football-data\.org\/v4\//);
+    assert.equal(attempt.headers["X-Auth-Token"], token, "API requests must use the configured test token");
+    assert.ok(
+      [
+        "/v4/competitions/PL/teams",
+        "/v4/competitions/PL/standings",
+        `/v4/teams/${ARSENAL.teamId}/matches`,
+      ].includes(new URL(attempt.url).pathname),
+      `unexpected request reached the network stub: ${attempt.url}`,
+    );
+  }
+}
+
 test("/soccer:login does not save an empty API key", async () => {
   await withSoccerCommands(async ({ commands, authFile }) => {
     const login = commands.get("soccer:login");
@@ -160,6 +212,69 @@ test("/soccer:login stores the API key without echoing it", async () => {
     assert.equal(stored.key, apiKey, "the entered key is persisted after trimming");
     assert.equal(typeof stored.updatedAt, "string");
     assert.equal(fetchAttempts.length, 0, "login must not perform network requests");
+  });
+});
+
+test("/soccer:setup guides API-key entry and team selection, then saves the favorite", async () => {
+  await withSoccerCommands(async ({ commands, authFile, configFile }) => {
+    const setup = commands.get("soccer:setup");
+    assert.ok(setup, "soccer:setup should be registered");
+    process.env.PI_SOCCER_LEAGUES = "PL";
+    const apiKey = "fd_test_setup_key_1234567890";
+    const answers = [apiKey, "Arsenal"];
+    const prompts = [];
+    const selections = [];
+    useSoccerApiStub();
+    const { ctx, notifications, widgets } = createCtx({
+      input: async (prompt) => {
+        prompts.push(prompt);
+        return answers.shift();
+      },
+      select: async (title, items) => {
+        selections.push({ title, items });
+        return items[0];
+      },
+    });
+
+    await setup.handler("", ctx);
+
+    assert.match(prompts[0], /API key/);
+    assert.match(prompts[1], /Search soccer team/);
+    assert.equal(selections.length, 1);
+    assert.equal(selections[0].title, "Choose favorite team:");
+    assert.deepEqual(selections[0].items, ["Arsenal FC | PL | ARS"]);
+    assert.equal(readJson(authFile).key, apiKey);
+    const saved = readJson(configFile);
+    assert.equal(saved.favoriteTeamId, ARSENAL.teamId);
+    assert.deepEqual(saved.teams.map((team) => team.teamId), [ARSENAL.teamId]);
+    assert.ok(notifications.some(({ text }) => text.includes("Saved Football-data API key.")));
+    assert.deepEqual(notifications.at(-1), { text: "Favorite set: Arsenal | PL | ARS", level: "info" });
+    assert.ok(widgets.length > 0, "setup refreshes the widget after saving the favorite");
+    assertStubbedApiAttempts(apiKey);
+    assert.ok(fetchAttempts.some(({ url }) => url.endsWith("/competitions/PL/teams")));
+  });
+});
+
+test("/soccer:setup does not save an empty API key or continue to team selection", async () => {
+  await withSoccerCommands(async ({ commands, authFile, configFile }) => {
+    const setup = commands.get("soccer:setup");
+    const selections = [];
+    const { ctx, notifications } = createCtx({
+      input: async () => "   ",
+      select: async (...args) => selections.push(args),
+    });
+
+    await setup.handler("", ctx);
+
+    assert.ok(notifications.some(({ text, level }) => text === "API key was not saved." && level === "warning"));
+    assert.deepEqual(notifications.at(-1), {
+      text: "Football-data API key is not set. Run /soccer:setup.",
+      level: "warning",
+    });
+    assert.equal(existsSync(authFile), false);
+    assert.equal(existsSync(configFile), false);
+    assert.deepEqual(selections, []);
+    assert.equal(fetchAttempts.length, 0);
   });
 });
 
@@ -359,5 +474,88 @@ test("/soccer:remove without an API key warns and keeps the watchlist", async ()
     });
     assert.equal(readFileSync(configFile, "utf-8"), before);
     assert.equal(fetchAttempts.length, 0, "a missing token must not trigger a sync");
+  });
+});
+
+test("/soccer:add searches through the picker, saves the selected team and refreshes", async () => {
+  await withSoccerCommands(async ({ commands, configFile }) => {
+    const add = commands.get("soccer:add");
+    const apiKey = "fd_test_add_key_1234567890";
+    process.env.FOOTBALL_DATA_API_TOKEN = apiKey;
+    process.env.PI_SOCCER_LEAGUES = "PL";
+    const selections = [];
+    useSoccerApiStub();
+    const { ctx, notifications, widgets } = createCtx({
+      input: async () => "Arsenal",
+      select: async (title, items) => {
+        selections.push({ title, items });
+        return items[0];
+      },
+    });
+
+    await add.handler("", ctx);
+
+    assert.deepEqual(selections, [{ title: "Add team to watchlist:", items: ["Arsenal FC | PL | ARS"] }]);
+    const saved = readJson(configFile);
+    assert.equal(saved.favoriteTeamId, ARSENAL.teamId);
+    assert.deepEqual(saved.teams.map((team) => team.teamId), [ARSENAL.teamId]);
+    assert.deepEqual(notifications[0], { text: "Added: Arsenal | PL | ARS", level: "info" });
+    assert.ok(widgets.length > 0, "adding a team refreshes the widget");
+    assertStubbedApiAttempts(apiKey);
+    assert.ok(fetchAttempts.some(({ url }) => url.endsWith("/competitions/PL/teams")));
+  });
+});
+
+test("/soccer:add rejects numeric IDs without changing the watchlist", async () => {
+  await withSoccerCommands(async ({ commands, configFile }) => {
+    const add = commands.get("soccer:add");
+    process.env.FOOTBALL_DATA_API_TOKEN = "fd_test_add_numeric_key_1234567890";
+    const { ctx, notifications } = createCtx();
+
+    await add.handler("57", ctx);
+
+    assert.deepEqual(notifications.at(-1), {
+      text: "Numeric team IDs are no longer supported. Use a team name, or run the command without arguments to pick from the UI.",
+      level: "warning",
+    });
+    assert.equal(existsSync(configFile), false);
+    assert.equal(fetchAttempts.length, 0, "invalid numeric input must not make a network request");
+  });
+});
+
+test("/soccer:sync refreshes cached data and reports the discovered league", async () => {
+  await withSoccerCommands(async ({ commands, configFile }) => {
+    const sync = commands.get("soccer:sync");
+    const apiKey = "fd_test_sync_key_1234567890";
+    process.env.FOOTBALL_DATA_API_TOKEN = apiKey;
+    process.env.PI_SOCCER_LEAGUES = "PL";
+    writeConfig(configFile, [ARSENAL], ARSENAL.teamId);
+    useSoccerApiStub();
+    const { ctx, notifications, widgets } = createCtx();
+
+    await sync.handler("", ctx);
+
+    assert.deepEqual(notifications.at(-1), { text: "Soccer data synced. Discovery league: PL", level: "info" });
+    assert.ok(widgets.length > 0, "sync refreshes the widget after updating cached data");
+    assertStubbedApiAttempts(apiKey);
+    assert.ok(fetchAttempts.some(({ url }) => url.includes("/competitions/PL/standings")));
+    assert.ok(fetchAttempts.some(({ url }) => url.includes(`/teams/${ARSENAL.teamId}/matches`)));
+  });
+});
+
+test("/soccer:sync warns and renders the missing-key state without network access", async () => {
+  await withSoccerCommands(async ({ commands, configFile }) => {
+    const sync = commands.get("soccer:sync");
+    writeConfig(configFile, [ARSENAL], ARSENAL.teamId);
+    const { ctx, notifications, widgets } = createCtx();
+
+    await sync.handler("", ctx);
+
+    assert.deepEqual(notifications.at(-1), {
+      text: "Football-data API key is not set. Run /soccer:setup.",
+      level: "warning",
+    });
+    assert.match(widgets.at(-1).lines.join("\n"), /API key not set/);
+    assert.equal(fetchAttempts.length, 0);
   });
 });
