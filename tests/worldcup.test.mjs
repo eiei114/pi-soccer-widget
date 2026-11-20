@@ -98,6 +98,112 @@ function createCtx(overrides = {}) {
   };
 }
 
+const WORLD_CUP_FIXTURE_TOKEN = "fd_test_inert_worldcup_menu_token";
+const JAPAN = { teamId: 900017, name: "Japan", shortName: "Japan", tla: "JPN", leagueCode: "WC" };
+
+function worldCupCommandConfig() {
+  return {
+    favoriteTeamId: null,
+    teams: [],
+    worldCup: {
+      followedTeamId: JAPAN.teamId,
+      teams: [JAPAN],
+      countryCode: JAPAN.tla,
+      updatedAt: "2026-05-01T00:00:00Z",
+    },
+    updatedAt: "2026-05-01T00:00:00Z",
+  };
+}
+
+function worldCupMatch({ id = 406, opponent = "Mexico", group = "Group C", scorer = "Hina" } = {}) {
+  const opponentId = opponent === "Mexico" ? 900020 : opponent === "Canada" ? 900005 : 900033;
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    id,
+    utcDate: `${today}T18:00:00Z`,
+    status: "SCHEDULED",
+    stage: "GROUP_STAGE",
+    group,
+    matchday: 1,
+    homeTeam: { id: JAPAN.teamId, name: JAPAN.name, shortName: JAPAN.shortName, tla: JAPAN.tla },
+    awayTeam: { id: opponentId, name: opponent, shortName: opponent, tla: opponent === "Mexico" ? "MEX" : "CAN" },
+    score: { winner: null, fullTime: { home: null, away: null }, penalties: null },
+    goals: [{ minute: 12, team: { id: JAPAN.teamId, name: JAPAN.name }, scorer: { name: scorer } }],
+    bookings: [],
+  };
+}
+
+async function withWorldCupApiFixtures(fn) {
+  const previousFetch = globalThis.fetch;
+  const requests = [];
+  process.env.FOOTBALL_DATA_API_TOKEN = WORLD_CUP_FIXTURE_TOKEN;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(String(input));
+    assert.equal(url.origin, "https://api.football-data.org", "tests must not fetch any live or unrelated host");
+    assert.equal(init.headers?.["X-Auth-Token"], WORLD_CUP_FIXTURE_TOKEN, "requests use only the inert fixture token");
+    requests.push(url);
+
+    let body;
+    if (url.pathname === "/v4/competitions/WC/teams") {
+      body = { teams: [{ id: JAPAN.teamId, name: JAPAN.name, shortName: JAPAN.shortName, tla: JAPAN.tla }] };
+    } else if (url.pathname === "/v4/competitions/WC/matches") {
+      body = { matches: [worldCupMatch()] };
+    } else if (url.pathname === "/v4/competitions/WC/standings") {
+      body = {
+        standings: [{
+          type: "TOTAL",
+          group: "Group C",
+          table: [{ position: 1, points: 3, playedGames: 1, team: { id: JAPAN.teamId, name: JAPAN.name, shortName: JAPAN.shortName, tla: JAPAN.tla } }],
+        }],
+      };
+    } else if (url.pathname === "/v4/competitions/WC/scorers") {
+      body = { scorers: [{ player: { name: "Taro Striker" }, team: { id: JAPAN.teamId, name: JAPAN.name, shortName: JAPAN.shortName }, goals: 3 }] };
+    } else if (/^\/v4\/matches\/\d+$/.test(url.pathname)) {
+      return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
+    } else {
+      assert.fail(`Unexpected football-data request: ${url.href}`);
+    }
+
+    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    await fn(requests);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+}
+
+async function runWorldCupMenuChoice({ commands, configFile, agentDir, choice, cachedMatch } = {}) {
+  writeJson(configFile, worldCupCommandConfig());
+  if (cachedMatch) {
+    const now = Date.now();
+    writeJson(join(agentDir, "pi-soccer-widget-snapshots.json"), {
+      timestamp: now,
+      discoveryTeamIds: [],
+      snapshots: {},
+      worldCup: {
+        timestamp: now,
+        fetchedAt: now,
+        team: JAPAN,
+        teams: [JAPAN],
+        matches: [cachedMatch],
+        standings: [],
+        topScorers: null,
+        topScorersAvailable: false,
+      },
+    });
+  }
+
+  let result;
+  await withWorldCupApiFixtures(async (requests) => {
+    const { ctx, notifications } = createCtx({ select: (_title, items) => items.find((item) => item === choice) });
+    await commands.get("soccer:worldcup").handler("", ctx);
+    result = { notifications, requests };
+  });
+  return result;
+}
+
 test("/soccer:worldcup is registered without legacy aliases or space-chained commands", async () => {
   await withExtension(async ({ commands }) => {
     assert.ok(commands.has("soccer:worldcup"));
@@ -136,6 +242,62 @@ test("saved World Cup config opens the expected menu", async () => {
       "Settings",
     ]);
     assert.match(selects[0].title, /World Cup \| Japan/);
+  });
+});
+
+test("World Cup Today's matches menu dispatch renders fixtures with an info notification", async () => {
+  await withExtension(async ({ commands, configFile, agentDir }) => {
+    const { notifications, requests } = await runWorldCupMenuChoice({ commands, configFile, agentDir, choice: "Today's matches" });
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].level, "info");
+    assert.match(notifications[0].text, /World Cup today:/);
+    assert.match(notifications[0].text, /Japan vs Mexico/);
+    assert.ok(requests.some((url) => url.pathname === "/v4/competitions/WC/matches"));
+  });
+});
+
+test("World Cup Group table menu dispatch renders the followed country's group with an info notification", async () => {
+  await withExtension(async ({ commands, configFile, agentDir }) => {
+    const { notifications } = await runWorldCupMenuChoice({ commands, configFile, agentDir, choice: "Group table" });
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].level, "info");
+    assert.match(notifications[0].text, /World Cup Group C:/);
+    assert.match(notifications[0].text, /1\. Japan 3pts \(1 played\)/);
+  });
+});
+
+test("World Cup Top scorers menu dispatch renders fixture scorers with an info notification", async () => {
+  await withExtension(async ({ commands, configFile, agentDir }) => {
+    const { notifications } = await runWorldCupMenuChoice({ commands, configFile, agentDir, choice: "Top scorers" });
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].level, "info");
+    assert.match(notifications[0].text, /World Cup top scorers:/);
+    assert.match(notifications[0].text, /1\. Taro Striker \(Japan\) - 3/);
+  });
+});
+
+test("World Cup Match detail forces a refresh and falls back to its refreshed snapshot match", async () => {
+  await withExtension(async ({ commands, configFile, agentDir }) => {
+    const cachedMatch = worldCupMatch({ id: 405, opponent: "Canada", group: "Group B", scorer: "Old scorer" });
+    const { notifications, requests } = await runWorldCupMenuChoice({
+      commands,
+      configFile,
+      agentDir,
+      choice: "Match detail",
+      cachedMatch,
+    });
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].level, "info");
+    assert.match(notifications[0].text, /World Cup match detail:/);
+    assert.match(notifications[0].text, /Japan vs Mexico/);
+    assert.match(notifications[0].text, /Goals: Hina 12'/);
+    assert.doesNotMatch(notifications[0].text, /Canada|Old scorer/);
+    assert.ok(requests.some((url) => url.pathname === "/v4/competitions/WC/matches"), "a fresh snapshot must be fetched despite the warm cache");
+    assert.ok(requests.some((url) => url.pathname === "/v4/matches/406"), "the refreshed match's detail endpoint must be tried");
   });
 });
 
