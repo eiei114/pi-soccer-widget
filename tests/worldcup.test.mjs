@@ -99,6 +99,7 @@ function createCtx(overrides = {}) {
 }
 
 const WORLD_CUP_FIXTURE_TOKEN = "fd_test_inert_worldcup_menu_token";
+const WORLD_CUP_MENU_TEST_NOW = "2026-06-11T23:59:59.999Z";
 const JAPAN = { teamId: 900017, name: "Japan", shortName: "Japan", tla: "JPN", leagueCode: "WC" };
 
 function worldCupCommandConfig() {
@@ -308,16 +309,22 @@ test("saved World Cup config opens the expected menu", async () => {
   });
 });
 
-test("World Cup Today's matches menu dispatch renders fixtures with an info notification", async () => {
-  await withExtension(async ({ commands, configFile, agentDir }) => {
-    const { notifications, requests } = await runWorldCupMenuChoice({ commands, configFile, agentDir, choice: "Today's matches" });
+test("World Cup Today's matches menu dispatch renders fixtures with an info notification", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(WORLD_CUP_MENU_TEST_NOW) });
+  try {
+    await withExtension(async ({ commands, configFile, agentDir }) => {
+      assert.equal(new Date().toISOString(), WORLD_CUP_MENU_TEST_NOW, "fixture and handler must share the fixed test clock");
+      const { notifications, requests } = await runWorldCupMenuChoice({ commands, configFile, agentDir, choice: "Today's matches" });
 
-    assert.equal(notifications.length, 1);
-    assert.equal(notifications[0].level, "info");
-    assert.match(notifications[0].text, /World Cup today:/);
-    assert.match(notifications[0].text, /Japan vs Mexico/);
-    assert.ok(requests.some(({ url }) => url.pathname === "/v4/competitions/WC/matches"));
-  });
+      assert.equal(notifications.length, 1);
+      assert.equal(notifications[0].level, "info");
+      assert.match(notifications[0].text, /World Cup today:/);
+      assert.match(notifications[0].text, /Japan vs Mexico/);
+      assert.ok(requests.some(({ url }) => url.pathname === "/v4/competitions/WC/matches"));
+    });
+  } finally {
+    t.mock.timers.reset();
+  }
 });
 
 test("World Cup Group table menu dispatch renders the followed country's group with an info notification", async () => {
