@@ -134,11 +134,12 @@ function worldCupMatch({ id = 406, opponent = "Mexico", group = "Group C", score
   };
 }
 
-async function withWorldCupApiFixtures(fn, { allowMatchDetailNotFound = false } = {}) {
+async function withWorldCupApiFixtures(fn, { allowMatchDetailNotFound = false, failedEndpoints = [] } = {}) {
   const previousFetch = globalThis.fetch;
   const previousToken = process.env.FOOTBALL_DATA_API_TOKEN;
   const requests = [];
   const violations = [];
+  const failedEndpointSet = new Set(failedEndpoints);
   const fixturePaths = new Set([
     "/v4/competitions/WC/teams",
     "/v4/competitions/WC/matches",
@@ -174,6 +175,10 @@ async function withWorldCupApiFixtures(fn, { allowMatchDetailNotFound = false } 
     }
     if (!fixturePaths.has(url.pathname)) {
       violations.push(`Unexpected football-data endpoint: ${url.href}`);
+    }
+    if (failedEndpointSet.has(url.pathname)) {
+      request.status = 503;
+      return new Response("temporary fixture failure", { status: 503 });
     }
 
     let body;
@@ -225,15 +230,15 @@ async function withWorldCupApiFixtures(fn, { allowMatchDetailNotFound = false } 
   }
 }
 
-async function runWorldCupMenuChoice({ commands, configFile, agentDir, choice, cachedMatch } = {}) {
+async function runWorldCupMenuChoice({ commands, configFile, agentDir, choice, cachedMatch, cachedSnapshot, failedEndpoints = [] } = {}) {
   writeJson(configFile, worldCupCommandConfig());
-  if (cachedMatch) {
+  if (cachedMatch || cachedSnapshot) {
     const now = Date.now();
     writeJson(join(agentDir, "pi-soccer-widget-snapshots.json"), {
       timestamp: now,
       discoveryTeamIds: [],
       snapshots: {},
-      worldCup: {
+      worldCup: cachedSnapshot ?? {
         timestamp: now,
         fetchedAt: now,
         team: JAPAN,
@@ -251,8 +256,28 @@ async function runWorldCupMenuChoice({ commands, configFile, agentDir, choice, c
     const { ctx, notifications } = createCtx({ select: (_title, items) => items.find((item) => item === choice) });
     await commands.get("soccer:worldcup").handler("", ctx);
     result = { notifications, requests };
-  }, { allowMatchDetailNotFound: choice === "Match detail" });
-  return result;
+  }, { allowMatchDetailNotFound: choice === "Match detail", failedEndpoints });
+  return {
+    ...result,
+    snapshotCache: readJson(join(agentDir, "pi-soccer-widget-snapshots.json")),
+  };
+}
+
+function cachedWorldCupSnapshot() {
+  return {
+    timestamp: 1,
+    fetchedAt: 1,
+    team: JAPAN,
+    teams: [JAPAN],
+    matches: [worldCupMatch({ id: 405, opponent: "Canada", group: "Group B", scorer: "Old scorer" })],
+    standings: [{
+      type: "TOTAL",
+      group: "Group B",
+      table: [{ position: 2, points: 4, playedGames: 2, team: { id: JAPAN.teamId, name: JAPAN.name, shortName: JAPAN.shortName, tla: JAPAN.tla } }],
+    }],
+    topScorers: [{ player: { name: "Old scorer" }, team: JAPAN, goals: 1 }],
+    topScorersAvailable: true,
+  };
 }
 
 test("World Cup API fixture guard catches swallowed host, token and endpoint violations", async () => {
@@ -335,6 +360,65 @@ test("World Cup Group table menu dispatch renders the followed country's group w
     assert.equal(notifications[0].level, "info");
     assert.match(notifications[0].text, /World Cup Group C:/);
     assert.match(notifications[0].text, /1\. Japan 3pts \(1 played\)/);
+  });
+});
+
+test("World Cup sync keeps cached matches when that endpoint fails and accepts fresh standings", async () => {
+  await withExtension(async ({ commands, configFile, agentDir }) => {
+    const cachedSnapshot = cachedWorldCupSnapshot();
+    const { notifications, requests, snapshotCache } = await runWorldCupMenuChoice({
+      commands,
+      configFile,
+      agentDir,
+      choice: "Group table",
+      cachedSnapshot,
+      failedEndpoints: ["/v4/competitions/WC/matches"],
+    });
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].level, "info");
+    assert.match(notifications[0].text, /World Cup Group C:/, "successful standings should replace the cached standings");
+    assert.match(notifications[0].text, /1\. Japan 3pts \(1 played\)/);
+    assert.deepEqual(snapshotCache.worldCup.matches, cachedSnapshot.matches, "the failed matches endpoint must preserve cached matches");
+    assert.deepEqual(snapshotCache.worldCup.standings, [{
+      type: "TOTAL",
+      group: "Group C",
+      table: [{ position: 1, points: 3, playedGames: 1, team: { id: JAPAN.teamId, name: JAPAN.name, shortName: JAPAN.shortName, tla: JAPAN.tla } }],
+    }], "successful standings should be stored alongside cached matches");
+    assert.ok(requests.some(({ url, status }) => url.pathname === "/v4/competitions/WC/matches" && status === 503));
+    assert.ok(requests.some(({ url, status }) => url.pathname === "/v4/competitions/WC/standings" && status === 200));
+  });
+});
+
+test("World Cup sync returns and preserves the previous snapshot when all core endpoints fail", async () => {
+  await withExtension(async ({ commands, configFile, agentDir }) => {
+    const cachedSnapshot = cachedWorldCupSnapshot();
+    const { notifications, requests, snapshotCache } = await runWorldCupMenuChoice({
+      commands,
+      configFile,
+      agentDir,
+      choice: "Today's matches",
+      cachedSnapshot,
+      failedEndpoints: [
+        "/v4/competitions/WC/teams",
+        "/v4/competitions/WC/matches",
+        "/v4/competitions/WC/standings",
+      ],
+    });
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].level, "info");
+    assert.match(notifications[0].text, /World Cup today:/);
+    assert.match(notifications[0].text, /Japan vs Canada/, "the command should render the previous snapshot's match");
+    assert.deepEqual(snapshotCache.worldCup, cachedSnapshot, "failed core endpoints must leave and return the exact previous snapshot");
+    assert.deepEqual(
+      requests.filter(({ url }) => ["/v4/competitions/WC/teams", "/v4/competitions/WC/matches", "/v4/competitions/WC/standings"].includes(url.pathname)).map(({ url, status }) => [url.pathname, status]),
+      [
+        ["/v4/competitions/WC/teams", 503],
+        ["/v4/competitions/WC/matches", 503],
+        ["/v4/competitions/WC/standings", 503],
+      ],
+    );
   });
 });
 
