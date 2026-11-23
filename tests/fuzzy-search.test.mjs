@@ -72,6 +72,36 @@ test("fuzzy score preserves accepted edit-distance thresholds", () => {
   assert.equal(fuzzyScore("internationalchampions", "internationalchompions"), 65);
 });
 
+test("fuzzy score matches full edit distance for unequal-length words", () => {
+  // Each pair stays in the same query-length budget in both directions.
+  const cases = [
+    // Label, shorter word, longer word, full distance, expected score.
+    ["one-edit limit", "ajax", "ajlax", 1, 65],
+    ["one-edit limit exceeded", "ajax", "ajlix", 2, 0],
+    ["two-edit limit", "arsenal", "arsxenyal", 2, 58],
+    ["two-edit limit exceeded", "arsenal", "arsxenyol", 3, 0],
+    ["two edits below 0.72 similarity", "bayern", "bayxrnn", 2, 0],
+    ["three-edit limit", "manchesterunitedfc", "manxchestyerunitzedfc", 3, 52],
+    // Four edits still clear 0.78 similarity, so distance must reject the match.
+    ["three-edit limit exceeded", "manchesterunitedfc", "manxchestyerunitzedfx", 4, 0],
+    ["three edits below 0.78 similarity", "manchester", "manxchyestzr", 3, 0],
+  ];
+
+  for (const [boundary, shorter, longer, distance, score] of cases) {
+    for (const [direction, query, name] of [
+      ["insertion", shorter, longer],
+      ["deletion", longer, shorter],
+    ]) {
+      const label = `${boundary} (${direction}: ${query} -> ${name})`;
+      assert.match(query, /^[a-z]+$/, `${label}: normalized query word`);
+      assert.match(name, /^[a-z]+$/, `${label}: normalized candidate word`);
+      assert.ok(!name.includes(query), `${label}: bypass exact, prefix and substring matches`);
+      assert.equal(editDistance(query, name), distance, `${label}: full edit distance`);
+      assert.equal(fuzzyScore(query, name), score, `${label}: score at the reference distance`);
+    }
+  }
+});
+
 test("team matching keeps name normalization and edit-distance behavior", () => {
   assert.equal(normalizeName("Montréal FC!"), "montreal fc");
   assert.equal(editDistance("kitten", "sitting"), 3);
