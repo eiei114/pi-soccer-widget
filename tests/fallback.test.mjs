@@ -260,6 +260,48 @@ for (const [name, fetchImpl] of [
   });
 }
 
+test("same-league watchlist teams share standings even when one has no row", async () => {
+  const ranked = team(1, "Ranked FC");
+  const unranked = team(2, "Unranked FC");
+  const standing = { position: 1, points: 50, playedGames: 20 };
+  const utcDate = "2026-05-30T18:00:00Z";
+  seedConfig(ranked, [unranked]);
+  let standingsRequests = 0;
+
+  globalThis.fetch = async (url) => {
+    const { pathname } = new URL(url);
+    if (pathname.endsWith("/competitions/PL/standings")) {
+      standingsRequests++;
+      return response(200, {
+        standings: [{ type: "TOTAL", table: [{ ...standing, team: { id: ranked.teamId } }] }],
+      });
+    }
+    if (pathname.endsWith("/competitions/SA/standings")) {
+      return response(200, { standings: [{ type: "TOTAL", table: [] }] });
+    }
+    if (pathname.endsWith(`/teams/${ranked.teamId}/matches`)) {
+      return response(200, { matches: [] });
+    }
+    if (pathname.endsWith(`/teams/${unranked.teamId}/matches`)) {
+      return response(200, { matches: [{
+        utcDate,
+        status: "SCHEDULED",
+        homeTeam: { id: unranked.teamId },
+        awayTeam: { id: 3, name: "Next FC", shortName: "Next" },
+      }] });
+    }
+    throw new Error(`unexpected URL: ${url}`);
+  };
+
+  await startSession();
+  const { snapshots } = readJson(snapshotsFile);
+
+  assert.deepEqual(snapshots[ranked.teamId].standing, standing);
+  assert.equal(snapshots[unranked.teamId].standing, null);
+  assert.deepEqual(snapshots[unranked.teamId].nextMatch, { utcDate, opponentShort: "Next" });
+  assert.equal(standingsRequests, 1, "PL standings should only be requested once per sync");
+});
+
 test("one team match fetch failure does not fail the whole sync", async () => {
   rmSync(snapshotsFile, { force: true });
   const broken = team(1, "Broken FC");

@@ -1392,27 +1392,6 @@ async function fetchLeagueStandingRows(leagueCode: string, token: string): Promi
   return data.standings.find((s) => s.type === "TOTAL")?.table ?? [];
 }
 
-async function fetchStanding(leagueCode: string, teamId: number, token: string): Promise<Standing | null> {
-  try {
-    const data = (await apiFetch(`/competitions/${leagueCode}/standings`, token)) as {
-      standings: Array<{
-        type: string;
-        table: Array<{
-          position: number;
-          points: number;
-          playedGames: number;
-          team: { id: number; name: string };
-        }>;
-      }>;
-    };
-    const total = data.standings.find((s) => s.type === "TOTAL");
-    const row = total?.table.find((r) => r.team.id === teamId);
-    return row ? { position: row.position, points: row.points, playedGames: row.playedGames } : null;
-  } catch {
-    return null;
-  }
-}
-
 async function fetchLastResult(teamId: number, token: string): Promise<MatchResult | null> {
   try {
     const data = (await apiFetch(`/teams/${teamId}/matches?dateFrom=${offsetDateStr(-120)}&dateTo=${todayStr()}`, token)) as { matches: MatchEntry[] };
@@ -1490,7 +1469,7 @@ async function syncData(config: SoccerConfig, token: string, options?: { force?:
       next.snapshots[String(team.teamId)] = await fetchSnapshot(
         team,
         token,
-        row ? standingFromRow(row) : await fetchStanding(team.leagueCode, team.teamId, token),
+        row ? standingFromRow(row) : null,
         "watchlist",
       );
     } catch {
