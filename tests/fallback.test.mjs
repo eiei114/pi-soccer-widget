@@ -242,6 +242,62 @@ async function startSession() {
   return { widgets, notifications };
 }
 
+for (const completeFavorite of [true, false]) {
+  const name = completeFavorite
+    ? "fresh club cache renders the favorite with both matches over a higher-scoring watchlist team"
+    : "fresh club cache renders the higher-scoring watchlist team when the favorite has no matches";
+
+  test(name, async () => {
+    const favorite = team(57, "Arsenal");
+    const watchlist = team(98, "Milan", "SA");
+    const now = Date.now();
+    const favoriteSnapshot = snapshot(favorite, now);
+    if (completeFavorite) {
+      // No standing means the favorite scores lower even with both matches.
+      favoriteSnapshot.standing = null;
+      favoriteSnapshot.nextMatch.opponentShort = "Chelsea";
+    } else {
+      favoriteSnapshot.lastResult = null;
+      favoriteSnapshot.nextMatch = null;
+    }
+    const watchlistSnapshot = snapshot(watchlist, now);
+    watchlistSnapshot.nextMatch.opponentShort = "Inter";
+    seedConfig(favorite, [watchlist]);
+    writeJson(snapshotsFile, {
+      timestamp: now,
+      discoveryTeamIds: [],
+      snapshots: {
+        [favorite.teamId]: favoriteSnapshot,
+        [watchlist.teamId]: watchlistSnapshot,
+      },
+    });
+
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls++;
+      throw new Error("fresh club cache should not fetch");
+    };
+
+    try {
+      const { widgets } = await startSession();
+      assert.equal(fetchCalls, 0, "render must not rely on a failed fetch's stale-cache fallback");
+      const lines = widgets.at(-1)?.lines ?? [];
+      assert.equal(lines.length, 3);
+      if (completeFavorite) {
+        assert.match(lines[0], /^Soccer: Arsenal \| PL \| favorite \| cache /);
+        assert.equal(lines[1], "Last: Arsenal 2-1 Rivals  W");
+        assert.match(lines[2], /^Next: vs Chelsea \| /);
+      } else {
+        assert.match(lines[0], /^Soccer: Milan \| SA #1 \| 42pts \| watchlist \| cache /);
+        assert.equal(lines[1], "Last: Milan 2-1 Rivals  W");
+        assert.match(lines[2], /^Next: vs Inter \| /);
+      }
+    } finally {
+      await registered.events.session_shutdown({ type: "session_shutdown", reason: "reload" }, {});
+    }
+  });
+}
+
 for (const [name, fetchImpl] of [
   ["HTTP 500", async () => response(500, { message: "server error" })],
   ["rate limit 429", async () => response(429, { message: "rate limited" })],
