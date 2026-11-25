@@ -1041,7 +1041,7 @@ async function fetchWorldCupTeams(token: string): Promise<TeamRecord[]> {
 }
 
 async function fetchWorldCupMatches(token: string): Promise<MatchEntry[]> {
-  const data = (await apiFetch(`/competitions/${WORLD_CUP_CODE}/matches?dateFrom=${offsetDateStr(-7)}&dateTo=${offsetDateStr(30)}`, token)) as { matches?: MatchEntry[] };
+  const data = (await apiFetch(`/competitions/${WORLD_CUP_CODE}/matches?dateFrom=${offsetLocalDateStr(-7)}&dateTo=${offsetLocalDateStr(30)}`, token)) as { matches?: MatchEntry[] };
   return data.matches ?? [];
 }
 
@@ -1356,9 +1356,15 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function offsetDateStr(days: number): string {
+function offsetLocalDateStr(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function offsetDateStr(utcDay: string, days: number): string {
+  const d = new Date(`${utcDay}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
@@ -1392,9 +1398,9 @@ async function fetchLeagueStandingRows(leagueCode: string, token: string): Promi
   return data.standings.find((s) => s.type === "TOTAL")?.table ?? [];
 }
 
-async function fetchLastResult(teamId: number, token: string): Promise<MatchResult | null> {
+async function fetchLastResult(teamId: number, token: string, utcDay: string): Promise<MatchResult | null> {
   try {
-    const data = (await apiFetch(`/teams/${teamId}/matches?dateFrom=${offsetDateStr(-120)}&dateTo=${todayStr()}`, token)) as { matches: MatchEntry[] };
+    const data = (await apiFetch(`/teams/${teamId}/matches?dateFrom=${offsetDateStr(utcDay, -120)}&dateTo=${utcDay}`, token)) as { matches: MatchEntry[] };
     const finished = data.matches.filter((m) => m.status === "FINISHED").sort((a, b) => (a.utcDate < b.utcDate ? 1 : -1));
     if (finished.length === 0) return null;
     const m = finished[0];
@@ -1414,9 +1420,9 @@ async function fetchLastResult(teamId: number, token: string): Promise<MatchResu
   }
 }
 
-async function fetchNextMatch(teamId: number, token: string): Promise<NextMatch | null> {
+async function fetchNextMatch(teamId: number, token: string, utcDay: string): Promise<NextMatch | null> {
   try {
-    const data = (await apiFetch(`/teams/${teamId}/matches?dateFrom=${todayStr()}&dateTo=${offsetDateStr(120)}`, token)) as { matches: MatchEntry[] };
+    const data = (await apiFetch(`/teams/${teamId}/matches?dateFrom=${utcDay}&dateTo=${offsetDateStr(utcDay, 120)}`, token)) as { matches: MatchEntry[] };
     const upcoming = data.matches.filter((m) => ["SCHEDULED", "TIMED"].includes(m.status)).sort((a, b) => (a.utcDate < b.utcDate ? -1 : 1));
     if (upcoming.length === 0) return null;
     const m = upcoming[0];
@@ -1433,9 +1439,10 @@ async function fetchSnapshot(
   standing: Standing | null,
   source: "watchlist" | "discovery",
 ): Promise<TeamSnapshot> {
+  const utcDay = todayStr();
   const [lastResult, nextMatch] = await Promise.all([
-    fetchLastResult(team.teamId, token),
-    fetchNextMatch(team.teamId, token),
+    fetchLastResult(team.teamId, token, utcDay),
+    fetchNextMatch(team.teamId, token, utcDay),
   ]);
   return { team, standing, lastResult, nextMatch, fetchedAt: Date.now(), source };
 }

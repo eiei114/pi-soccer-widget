@@ -547,6 +547,42 @@ test("/soccer:sync refreshes cached data and reports the discovered league", asy
   });
 });
 
+for (const { now, timezoneOffset, today, last, next } of [
+  // Winter reference: local arithmetic puts both summer bounds just before UTC midnight.
+  { now: "2026-12-01T00:30:00Z", timezoneOffset: 300, today: "2026-12-01", last: "2026-08-03", next: "2027-03-31" },
+  // Summer reference: local arithmetic puts the winter bound just after UTC midnight.
+  { now: "2026-09-01T23:30:00Z", timezoneOffset: 240, today: "2026-09-01", last: "2026-05-04", next: "2026-12-30" },
+]) {
+  test(`/soccer:sync requests club matches within ±120 UTC calendar days at ${now}`, async (t) => {
+    const previousTZ = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const instant = new Date(now);
+      assert.equal(instant.getTimezoneOffset(), timezoneOffset, "test must run in New York local time");
+      t.mock.timers.enable({ apis: ["Date"], now: instant });
+      await withSoccerCommands(async ({ commands, configFile }) => {
+        process.env.FOOTBALL_DATA_API_TOKEN = "fd_test_utc_windows";
+        process.env.PI_SOCCER_LEAGUES = "PL";
+        writeConfig(configFile, [ARSENAL], ARSENAL.teamId);
+        useSoccerApiStub();
+        const { ctx } = createCtx();
+
+        await commands.get("soccer:sync").handler("", ctx);
+
+        const matchPath = `/v4/teams/${ARSENAL.teamId}/matches`;
+        // Watchlist and discovery can fetch the same club; check the distinct requests.
+        const windows = [...new Set(fetchAttempts.map(({ url }) => url))].map((url) => new URL(url))
+          .filter(({ pathname }) => pathname === matchPath)
+          .map(({ searchParams }) => [searchParams.get("dateFrom"), searchParams.get("dateTo")]);
+        assert.deepEqual(windows.sort(), [[last, today], [today, next]]);
+      });
+    } finally {
+      t.mock.timers.reset();
+      restoreEnv("TZ", previousTZ);
+    }
+  });
+}
+
 test("/soccer:sync warns and renders the missing-key state without network access", async () => {
   await withSoccerCommands(async ({ commands, configFile }) => {
     const sync = commands.get("soccer:sync");
